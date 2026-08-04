@@ -22,17 +22,104 @@ And at the end of a long session, the system points out that something worth kee
 
 ## What it looks like in use
 
-You ask about retrying against a slow service. Before the agent starts answering, this arrives in its context:
+Every block below is real output, copied from the acceptance run you can execute yourself. The
+instructional headers are trimmed with `[...]` where they get long.
+
+### A note you forgot you wrote
+
+You ask about retrying against a slow service. Before the agent starts answering, this arrives in
+its context:
 
 ```
-[RECALL] Wiki notes matched by your prompt tags.
-  - circuit-breaker: A retry without a circuit breaker turns one slow dependency into a
-    full outage: every caller piles on while the callee is already saturated. Break the
-    circuit after N consecutive failures and probe with a single request.
-    -> patterns/circuit-breaker.md
+[RECALL] Wiki notes matched by your prompt tags. For each: read the summary and decide if it
+enriches the current task. [...]
+  - circuit-breaker: A retry without a circuit breaker turns one slow dependency into a full
+    outage: every caller piles on while the callee is already saturated. Break the circuit
+    after N consecutive failures and probe with a single request.
+    → /vault/patterns/circuit-breaker.md
 ```
 
-You wrote that note. The agent found it by itself.
+You wrote that note. Nobody searched for it.
+
+What made it findable is the entry the compiler built from its frontmatter. This is the whole
+document that retrieval ranks against, and the note's body is not in it:
+
+```json
+{
+  "name": "circuit-breaker",
+  "path": "patterns/circuit-breaker.md",
+  "tags": ["circuit-breaker", "retry", "resilience", "timeout", "outage"],
+  "summary": "A retry without a circuit breaker turns one slow dependency into a full outage:
+              every caller piles on while the callee is already saturated. Break the circuit
+              after N consecutive failures and probe with a single request."
+}
+```
+
+### Something you already did once, in this project
+
+The second rail stores procedure rather than knowledge. Ask how to rebuild the index and it hands
+back the sequence that worked here before, tagged with how much evidence stands behind it:
+
+```
+[PROCEDURAL] Action sequence(s) that worked in this project before. [...]
+  - rebuild-index-after-editing-notes: [worked once] an edited note does not show up in recall -
+    an edited note stays invisible until the index is recompiled
+    → .claude/procedural.md#rebuild-index-after-editing-notes
+```
+
+`[worked once]` is the evidence base and it tells the agent how hard to lean. One success is a
+hypothesis that happened to work; several sessions make it a pattern. Neither makes it a law.
+
+### A moment worth keeping
+
+You say you settled on something. The capture rail notices and suggests, without writing anything:
+
+```
+[CAPTURE] The user's message looks capture-worthy. These are SUGGESTIONS - act ONLY if the
+content is genuinely durable, and never auto-write a note without the user. [...]
+- This looks like a DECISION. If it is durable, meaning it shapes future work, record it
+  together with the reason behind it so the same choice is not reopened in a month.
+```
+
+At the end of the session a harvester re-scans what you said and stages anything the live hint
+missed. Candidates wait in `.claude/capture_inbox.md` until you run `/capture-review`. Nothing is
+promoted to a note without you.
+
+### Running out of room
+
+A long session eventually trades what it learned for space. Before that happens:
+
+```
+[CAPTURE-DUE] Context is about 85% full (170k of 200k). This is the point where something
+learned in this session gets traded for space rather than remembered.
+What to do, in this order:
+1. Finish the user's current request first. Do not break off mid-step for bookkeeping.
+2. Then sweep THIS session for what would cost real time to re-derive: a decision and the
+   reason behind it, a gotcha with the symptom that gives it away, an approach tried and
+   rejected. Skip anything that only matters until this task ends.
+3. Offer the shortlist to the user, or run /capture-review if candidates are staged.
+If nothing durable happened, say so in one line and move on. An empty sweep is a valid result;
+inventing a note to look thorough is the failure this signal exists to prevent.
+```
+
+The window comes from the model id, so a session with a million tokens of room is not warned at a
+sixth of its capacity. A reading with no rule attached is decoration, which is why the block says
+what to do rather than only how full things are.
+
+### When the rail itself breaks
+
+This is the part worth trusting. If the index is unreadable, the system says so instead of matching
+nothing and looking like a quiet miss:
+
+```
+[RAIL-BROKEN] A recall corpus failed to load. This is a BUG, not an empty corpus - the affected
+rail matched nothing because it could not read its index, not because nothing matched. Recall is
+BLIND for that rail this session. [...]
+  - wiki (Layer 5): parse index_compiled.json: invalid character 'b' looking for beginning of
+    object key string
+```
+
+Silence means "searched, found nothing". It never means "did not search".
 
 ## Install
 

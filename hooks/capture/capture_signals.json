@@ -1,9 +1,9 @@
 {
-  "_comment": "Capture signals for capture_scanner (UserPromptSubmit rail). Conservative multi-word phrases keep false positives low; tune here WITHOUT recompiling (Go reads this at runtime). Matching is case-insensitive with Unicode word-boundary checks, so a phrase only fires when flanked by non-letters. Add a phrase to widen a category; remove one to quiet it. Russian first, English for code-context.",
+  "_comment": "Capture signals for capture_scanner (UserPromptSubmit rail). Conservative multi-word phrases keep false positives low; tune here WITHOUT recompiling (Go reads this at runtime). Matching is case-insensitive with Unicode word-boundary checks, so a phrase only fires when flanked by non-letters. Add a phrase to widen a category; remove one to quiet it. English and Russian phrases ship together because the matcher does not care which language the prompt is in - add your own the same way. The hint is what the agent reads, and it is a suggestion: nothing becomes a note without the user.",
   "categories": [
     {
       "id": "decision",
-      "hint": "Похоже на РЕШЕНИЕ. Если оно durable (влияет на будущую работу) — зафиксируй в auto_memory (decision-заметку) или wiki, чтобы через месяц не переоткрывать тот же выбор.",
+      "hint": "This looks like a DECISION. If it is durable, meaning it shapes future work, record it together with the reason behind it so the same choice is not reopened in a month.",
       "patterns": [
         "решили что", "решено", "мы выбрали", "решил использовать", "договорились",
         "остановились на", "финальное решение", "принял решение", "выбираем вариант",
@@ -13,7 +13,7 @@
     },
     {
       "id": "gotcha",
-      "hint": "Похоже на ГРАБЛИ/gotcha — неочевидный подвох. Зафиксируй в память, чтобы не наступить снова (и не потратить те же часы на переоткрытие).",
+      "hint": "This looks like a GOTCHA: a trap that is not obvious from the outside. Record the symptom that gives it away, not only the fix, so the next encounter is recognised instead of re-debugged.",
       "patterns": [
         "оказалось что", "подвох в том", "грабли", "чуть не", "важный нюанс",
         "коварн", "легко забыть", "не очевидно что", "тонкий момент",
@@ -22,7 +22,7 @@
     },
     {
       "id": "pattern",
-      "hint": "Похоже на повторяющийся ПАТТЕРН/правило. Вынеси в wiki pattern-страницу (/compile) — повторяющееся знание должно жить как одна заметка, а не всплывать заново.",
+      "hint": "This looks like a recurring PATTERN or rule. Recurring knowledge belongs in one note rather than resurfacing in conversation after conversation: stage it in raw/ and run /compile.",
       "patterns": [
         "как правило", "золотое правило", "по канону", "общий паттерн",
         "устойчивый паттерн", "правило большого пальца", "каждый раз одно и то же",
@@ -31,7 +31,7 @@
     },
     {
       "id": "rejected",
-      "hint": "Похоже на ОТВЕРГНУТЫЙ подход. Запиши в rejected-list или память с причиной — чтобы через полгода не пробовать тупик заново.",
+      "hint": "This looks like a REJECTED approach. Record it with the reason it failed, so the same dead end is not explored again in six months.",
       "patterns": [
         "не сработало", "не вариант", "отказались от", "зашло в тупик",
         "тупиковый", "провалилось", "не взлетел", "отвергли",
