@@ -1,0 +1,43 @@
+# Machine-local / private — must never reach a public repo
+*.original.md
+HANDOFF.md
+HANDOFF_EMERGENCY.md
+.claude/HANDOFF*.md
+**/memory/
+**/agent-memory/
+**/transcripts/
+**/code_index/
+session_cache*.json
+*.local.json
+settings.local.json
+
+# Caches & build artifacts
+__pycache__/
+*.pyc
+*.pyo
+.mypy_cache/
+.ruff_cache/
+node_modules/
+dist/
+build/
+*.exe
+*.log
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# migration worksheet - stays in the source folder, never in the repo
+CLOSURE.md
+
+# inkling runtime state - generated, never committed
+hooks/recall/index_compiled*.json
+hooks/recall/semantic_index*.json
+hooks/recall/recall_stats.json
+hooks/recall/cooldown_*.json
+hooks/recall/fires_*.jsonl
+hooks/recall/*.exe
+hooks/capture/capture_cd_*.json
+hooks/capture/*.exe
+hooks/capture/capture_ctx_*.json

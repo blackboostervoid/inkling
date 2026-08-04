@@ -1,0 +1,7 @@
+# Text files keep LF in the repository and in the working copy on every platform.
+# A shell script checked out with CRLF does not run on Linux or macOS, and this repo
+# ships one that every install depends on (hooks/build_hooks.sh).
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary

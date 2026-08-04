@@ -1,0 +1,42 @@
+{
+  "_comment": "Capture signals for capture_scanner (UserPromptSubmit rail). Conservative multi-word phrases keep false positives low; tune here WITHOUT recompiling (Go reads this at runtime). Matching is case-insensitive with Unicode word-boundary checks, so a phrase only fires when flanked by non-letters. Add a phrase to widen a category; remove one to quiet it. Russian first, English for code-context.",
+  "categories": [
+    {
+      "id": "decision",
+      "hint": "Похоже на РЕШЕНИЕ. Если оно durable (влияет на будущую работу) — зафиксируй в auto_memory (decision-заметку) или wiki, чтобы через месяц не переоткрывать тот же выбор.",
+      "patterns": [
+        "решили что", "решено", "мы выбрали", "решил использовать", "договорились",
+        "остановились на", "финальное решение", "принял решение", "выбираем вариант",
+        "we decided", "i decided", "let's go with", "we'll use", "agreed to",
+        "final decision", "we chose", "going with"
+      ]
+    },
+    {
+      "id": "gotcha",
+      "hint": "Похоже на ГРАБЛИ/gotcha — неочевидный подвох. Зафиксируй в память, чтобы не наступить снова (и не потратить те же часы на переоткрытие).",
+      "patterns": [
+        "оказалось что", "подвох в том", "грабли", "чуть не", "важный нюанс",
+        "коварн", "легко забыть", "не очевидно что", "тонкий момент",
+        "turns out", "gotcha", "the catch is", "watch out for", "easy to miss", "footgun"
+      ]
+    },
+    {
+      "id": "pattern",
+      "hint": "Похоже на повторяющийся ПАТТЕРН/правило. Вынеси в wiki pattern-страницу (/compile) — повторяющееся знание должно жить как одна заметка, а не всплывать заново.",
+      "patterns": [
+        "как правило", "золотое правило", "по канону", "общий паттерн",
+        "устойчивый паттерн", "правило большого пальца", "каждый раз одно и то же",
+        "rule of thumb", "as a rule", "the pattern here", "every time we", "always worth"
+      ]
+    },
+    {
+      "id": "rejected",
+      "hint": "Похоже на ОТВЕРГНУТЫЙ подход. Запиши в rejected-list или память с причиной — чтобы через полгода не пробовать тупик заново.",
+      "patterns": [
+        "не сработало", "не вариант", "отказались от", "зашло в тупик",
+        "тупиковый", "провалилось", "не взлетел", "отвергли",
+        "didn't work", "not an option", "ruled out", "dead end", "won't work because"
+      ]
+    }
+  ]
+}

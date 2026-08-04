@@ -1,0 +1,6 @@
+{
+  "_comment": "Extra vault corpora, one entry per namespace. Each compiles to its own\nindex_compiled_<namespace>.json and is selected per workspace by the lens `wiki_index` field.\nA namespace sources its membership from INDEX.md rather than by globbing, which lets a corpus\ninclude notes that live outside its own root. Empty registry = the default corpus only.",
+  "_example": {
+    "personal": { "wiki_path": "/absolute/path/to/another/vault/", "stem": true }
+  }
+}

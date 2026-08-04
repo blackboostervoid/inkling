@@ -1,0 +1,51 @@
+{
+  "_comment": [
+    "Hook wiring for inkling. Merge these entries into your ~/.claude/settings.json;",
+    "if you already have hooks on these events, append rather than replace.",
+    "Set CLAUDE_WIKI_PATH to your Obsidian vault root first - without it recall has",
+    "no corpus and the compiler says so and exits cleanly.",
+    "python3 is assumed on PATH. On Windows without it, replace python3 with py.",
+    "The Go binaries are built by build_hooks.sh at SessionStart; a Go toolchain is",
+    "required once per machine. No toolchain means no binary and the hook fails loudly,",
+    "which is the correct signal."
+  ],
+
+  "env": {
+    "CLAUDE_WIKI_PATH": "/absolute/path/to/your/ObsidianVault/"
+  },
+
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash \"$CLAUDE_CONFIG_DIR/hooks/build_hooks.sh\"" },
+          { "type": "command", "command": "python3 \"$CLAUDE_CONFIG_DIR/hooks/recall/compile_wiki_index.py\"" },
+          { "type": "command", "command": "python3 \"$CLAUDE_CONFIG_DIR/hooks/recall/lens_init.py\"" },
+          { "type": "command", "command": "python3 \"$CLAUDE_CONFIG_DIR/hooks/recall/compile_procedural.py\" --dir \"${CLAUDE_PROJECT_DIR}/.claude\" --if-stale" },
+          { "type": "command", "command": "python3 \"$CLAUDE_CONFIG_DIR/hooks/capture/capture_inbox.py\" --mode=nudge" }
+        ]
+      }
+    ],
+
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "\"$CLAUDE_CONFIG_DIR/hooks/recall/recall_scanner.exe\"" },
+          { "type": "command", "command": "\"$CLAUDE_CONFIG_DIR/hooks/capture/capture_scanner.exe\"" },
+          { "type": "command", "command": "python3 \"$CLAUDE_CONFIG_DIR/hooks/capture/capture_inbox.py\" --mode=context" }
+        ]
+      }
+    ],
+
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_CONFIG_DIR/hooks/recall/recall_feedback.py\"" },
+          { "type": "command", "command": "python3 \"$CLAUDE_CONFIG_DIR/hooks/recall/recall_evidence.py\"" },
+          { "type": "command", "command": "python3 \"$CLAUDE_CONFIG_DIR/hooks/recall/procedural_feedback.py\"" },
+          { "type": "command", "command": "python3 \"$CLAUDE_CONFIG_DIR/hooks/capture/capture_inbox.py\" --mode=harvest" }
+        ]
+      }
+    ]
+  }
+}
