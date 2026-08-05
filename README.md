@@ -184,6 +184,8 @@ Write tags in the words you ask questions with, not the words your architecture 
 
 **Write in the language you actually talk to your agent in, and stay with one.** The default is English. This is mechanics, not style: a tag matches by appearing in your prompt, so a tag in a language you never type never fires, and the silence looks exactly like an empty vault. If your language declines its nouns, turn on the optional stemmer with `"stem": true` in `corpora.json`, or the dictionary form will keep missing every other case.
 
+The same optional layer has a second stage worth knowing about. With `CLAUDE_RERANK_MODEL` set, a search runs its shortlist past a local model that scores each note against the question and drops the ones that do not clear the bar. What that buys is not a better order, it is the ability to answer *nothing*: similarity scores can rank but never abstain, so without it a search always hands back its closest guess. Measured on a 112-note vault, a question the vault had no answer for came back empty instead of returning a confident-looking wrong note.
+
 The full format is in [VAULT_CONTRACT.md](VAULT_CONTRACT.md). The recipe format for the second rail is in [RECIPE_FORMAT.md](RECIPE_FORMAT.md).
 
 ## What it does not do

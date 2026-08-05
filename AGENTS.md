@@ -148,6 +148,27 @@ Pick for quality rather than speed. Embedding is slow (measured: about 2.2 secon
 not comparable, and mixing them silently produces nonsense neighbours rather than an error. After a
 model change, delete `CONFIG/hooks/recall/semantic_index*.json` and let it rebuild.
 
+**Optionally, a second stage that can say "nothing".** Set `CLAUDE_RERANK_MODEL` to a local chat
+model and pass `--rerank` to a search. The embedder picks a shortlist, then that model reads the
+question and each note separately and scores it out of ten; anything under six is dropped.
+
+This is not about better sorting. Cosine similarity can rank but cannot abstain, so it always
+presents a best answer even when the vault holds nothing on the subject. The judge scores each note
+on its own and can put every one of them at zero, which is how "found nothing" becomes sayable.
+Measured on a 112-note vault: a question with no answer in the vault returned an empty result
+instead of a confident 0.55, and a question with one returned it at ten out of ten.
+
+Pick any instruct model you already run; a mid-sized one is enough, since the task is a judgement
+rather than composition. Two things to know before enabling it:
+
+- **It is slow.** Each candidate is a separate call, and eight candidates against a 26B model took
+  about 34 seconds per query here. That is affordable only because this is a tool the agent chooses
+  to call, never a hook.
+- **Each candidate is judged alone, on purpose.** A judge shown a list favours whatever came first,
+  which would quietly reproduce the ranking it exists to correct.
+- If the model is a thinking model, the call sends `think: false`. Without it the token budget goes
+  to reasoning and the reply comes back empty, which looks exactly like an unreachable server.
+
 **Verify, then seed the vault once:**
 
 ```sh

@@ -29,6 +29,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -55,6 +56,17 @@ DEFAULT_K = 8
 SUGGEST_MIN_SCORE = 0.45
 SUGGEST_MIN_GAP = 0.06
 SUGGEST_MAX_PER_NOTE = 3
+
+# Rerank is OFF unless a model is named. Same discipline as the rest of this layer:
+# absent means the previous behaviour, never a failure.
+RERANK_MODEL = os.environ.get("CLAUDE_RERANK_MODEL", "").strip()
+RERANK_CANDIDATES = 8   # how many cosine hits the judge reads
+RERANK_TIMEOUT = 120
+# Below this the note is dropped rather than shown. This is the whole point of the second
+# stage: cosine ranks but cannot abstain, so it always presents a best answer even when the
+# vault holds nothing on the subject. The judge scores each note on its own and can put every
+# one of them at zero - which is how "found nothing" becomes sayable.
+RERANK_FLOOR = 6.0
 
 
 class OllamaUnavailable(Exception):
@@ -232,6 +244,82 @@ def search(query: str, corpus: str, k: int) -> List[Dict]:
             for s, p, r in scored[:k]]
 
 
+# ============================================================
+# RERANK — a local model reads the shortlist and re-scores it
+# ============================================================
+JUDGE_PROMPT = (
+    "You judge whether a note is worth showing to someone who asked a question.\n\n"
+    "QUESTION: {query}\n\n"
+    "NOTE TITLE: {name}\n"
+    "NOTE SUMMARY: {summary}\n\n"
+    "How useful is this note for answering that question? Reply with ONE number:\n"
+    "0 = unrelated, 3 = same general field but does not address it, "
+    "6 = touches the question, 10 = directly answers it.\n"
+    "Answer with the number only, no words."
+)
+
+
+def judge_once(query: str, name: str, summary: str) -> Optional[float]:
+    """Score one candidate. Returns None when the judge is unreachable or unparseable,
+    which the caller treats as 'no opinion' rather than as a zero."""
+    prompt = JUDGE_PROMPT.format(query=query, name=name, summary=summary[:600])
+    if is_openai_compatible():
+        url = f"{EMBED_URL}/chat/completions"
+        payload = {"model": RERANK_MODEL, "temperature": 0,
+                   "messages": [{"role": "user", "content": prompt}], "max_tokens": 16}
+        headers = {"Content-Type": "application/json",
+                   "Authorization": "Bearer " + os.environ.get("CLAUDE_EMBED_KEY", "not-needed")}
+    else:
+        url = f"{EMBED_URL}/api/generate"
+        # think=False matters more than it looks: a thinking model spends the token
+        # budget on reasoning and returns an EMPTY string with done_reason "length",
+        # which reads as an unreachable judge rather than as a misconfigured one.
+        payload = {"model": RERANK_MODEL, "prompt": prompt, "stream": False, "think": False,
+                   "options": {"temperature": 0, "num_predict": 16}}
+        headers = {"Content-Type": "application/json"}
+
+    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=RERANK_TIMEOUT) as resp:
+            out = json.load(resp)
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+    if is_openai_compatible():
+        text = (out.get("choices") or [{}])[0].get("message", {}).get("content", "")
+    else:
+        text = out.get("response", "")
+
+    # Tolerant parse: the first number in the reply, however the model dressed it up.
+    match = re.search(r"\d+(?:\.\d+)?", str(text))
+    if not match:
+        return None
+    return max(0.0, min(10.0, float(match.group(0))))
+
+
+def rerank(query: str, results: List[Dict]) -> List[Dict]:
+    """Re-score the shortlist with the judge. Candidates the judge had no opinion on
+    keep their cosine order below the ones it did score, so a flaky judge degrades to
+    the old ranking instead of shuffling it."""
+    if not RERANK_MODEL or not results:
+        return results
+    judged, unjudged = [], []
+    for r in results:
+        score = judge_once(query, r.get("name", ""), r.get("summary", ""))
+        if score is None:
+            unjudged.append(r)
+        else:
+            r["judge"] = score
+            judged.append(r)
+    judged.sort(key=lambda r: (r["judge"], r["score"]), reverse=True)
+    kept = [r for r in judged if r["judge"] >= RERANK_FLOOR]
+    if judged and not kept:
+        # Every candidate was rejected. Returning the least-bad one would undo the only
+        # thing this stage adds, so return nothing and let the caller say so.
+        return unjudged
+    return kept + unjudged
+
+
 def first_sentence(summary: str, limit: int = 130) -> str:
     s = " ".join(summary.split())
     return s[:limit].rstrip() + ("…" if len(s) > limit else "")
@@ -338,6 +426,8 @@ def main() -> int:
     ps.add_argument("query")
     ps.add_argument("-k", type=int, default=DEFAULT_K)
     ps.add_argument("--corpus", default="code")
+    ps.add_argument("--rerank", action="store_true",
+                    help="re-score the shortlist with CLAUDE_RERANK_MODEL (slower, sharper)")
     pg = sub.add_parser("suggest", help="propose `related` links for one note or the whole vault")
     pg.add_argument("--note", default=None, help="note name (filename stem); omit for every note")
     pg.add_argument("-k", type=int, default=SUGGEST_MAX_PER_NOTE)
@@ -354,13 +444,26 @@ def main() -> int:
         if args.cmd == "suggest":
             return suggest(args.corpus, args.note, args.k)
 
-        results = search(args.query, args.corpus, args.k)
+        wanted = args.k
+        if getattr(args, "rerank", False) and RERANK_MODEL:
+            # Read a wider shortlist so the judge has something to choose between.
+            results = search(args.query, args.corpus, max(RERANK_CANDIDATES, wanted))
+            results = rerank(args.query, results)[:wanted]
+        else:
+            results = search(args.query, args.corpus, wanted)
+
         if not results:
-            print(f"[semantic] no notes in the {args.corpus} corpus index — is the wiki compiled?")
+            if getattr(args, "rerank", False) and RERANK_MODEL:
+                print(f"[semantic] {MODEL} + {RERANK_MODEL} · nothing in the vault answers "
+                      f"\"{args.query}\" — every candidate scored below {RERANK_FLOOR:.0f}/10")
+            else:
+                print(f"[semantic] no notes in the {args.corpus} corpus index — is the wiki compiled?")
             return 0
-        print(f"[semantic] {MODEL} · query: \"{args.query}\" · top {len(results)}")
+        judged = " + " + RERANK_MODEL if any("judge" in r for r in results) else ""
+        print(f"[semantic] {MODEL}{judged} · query: \"{args.query}\" · top {len(results)}")
         for r in results:
-            print(f"  {r['score']:.3f}  {r['path']}  —  {r['name']}: {first_sentence(r['summary'])}")
+            mark = f"  judge {r['judge']:.0f}/10" if "judge" in r else ""
+            print(f"  {r['score']:.3f}{mark}  {r['path']}  —  {r['name']}: {first_sentence(r['summary'])}")
         return 0
     except OllamaUnavailable as exc:
         print(f"[semantic] ollama/{MODEL} unavailable ({exc}). Falling back to lexical recall — "
