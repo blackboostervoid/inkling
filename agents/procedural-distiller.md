@@ -101,7 +101,7 @@ judgment -> candidate file -> human gate), but a different source, sink, and sco
   2. actionable — phrasable as "do X" / "don't Y", not "X matters";
   3. clear violation risk (1 sentence);
   4. **not already in CLAUDE.md** — check the section index, including concepts worded differently.
-- **Exclude:** skill-LOCAL operating rules (e.g. "Communication: Russian" — already a global rule,
+- **Exclude:** skill-LOCAL operating rules (e.g. "talk to the user in their language" — already a global rule,
   so restating it in a skill is NOT a new principle), how-to / commands, language/framework detail.
 - **Write** one markdown block per candidate to `$CLAUDE_CONFIG_DIR/rules_candidates.md` (create or
   append; never duplicate a slug already present in the file):

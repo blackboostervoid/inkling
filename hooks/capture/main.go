@@ -64,7 +64,7 @@ const (
 
 // ========================================================================================
 // MATCHING — Unicode word-boundary phrase match (Go RE2 has no lookbehind; \b is ASCII-only,
-// so a hand-rolled boundary check is what makes Cyrillic phrases fire correctly).
+// so a hand-rolled boundary check is what makes non-Latin phrases fire correctly).
 // ========================================================================================
 
 // containsSignal reports whether phrase occurs in text flanked by non-letters on both sides.
@@ -91,7 +91,7 @@ func containsSignal(text, phrase string) bool {
 
 // boundaryOK is true when the rune immediately before start and immediately after end are not
 // letters (or are string edges) — the Unicode equivalent of obsidian-mind's (?<![a-zA-Z]) guards,
-// generalized so it works for Russian, not just Latin.
+// generalized so it works for non-Latin scripts too.
 func boundaryOK(text string, start, end int) bool {
 	if start > 0 {
 		r, _ := utf8.DecodeLastRuneInString(text[:start])

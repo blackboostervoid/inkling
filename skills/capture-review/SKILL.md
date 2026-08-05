@@ -72,7 +72,7 @@ Left in the inbox: R
 ```
 
 ## Rules
-- Communication: Russian.
+- Talk to the user in the language they write to you in.
 - Judgment over volume — dropping most catches is normal and healthy; the inbox is a wide net, not a mandate to keep.
 - Never auto-write on trigger — Step 3 confirmation gate is mandatory unless the user said "promote everything".
 - A promoted note obeys its home's contract (memory format, or wiki single-source/graph-first via `/compile`). This skill stages the seed; the home owns the shape.

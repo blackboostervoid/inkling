@@ -159,7 +159,7 @@ Ask two separate questions:
    - Skip `[CONFLICT]` and `[MISFILED]` — those need human decision, not more research.
 
 ## Rules
-- Communication: Russian
+- Talk to the user in the language they write to you in.
 - Do NOT auto-fix contradictions or stale content — flag for user decision
 - Auto-fixable: missing frontmatter tags, empty related fields, frontmatter gaps
 - Always log the lint pass to log.md

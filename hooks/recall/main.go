@@ -56,8 +56,9 @@ type IndexEntry struct {
 // mapping lives in corpora.json (single source of truth, also read by
 // compile_wiki_index.py to know which corpora to build).
 //
-// Stem (v2.8) turns on light Russian stemming + stopword drop for the active corpus.
-// Off by default (code corpus byte-identical); set true for an all-Russian corpus
+// Stem (v2.8) turns on light suffix stemming + stopword drop for the active corpus.
+// Off by default (the default corpus stays byte-identical); set true for a corpus in an
+// inflected language
 // (an opted-in namespace) via corpora.json so inflected prompts ("про пайку") match base-form tags.
 type Lens struct {
 	Bridge        map[string][]string `yaml:"bridge"`
@@ -206,7 +207,7 @@ var ruStopwords = map[string]bool{
 	"был": true, "уже": true, "если": true, "чтобы": true, "когда": true, "очень": true,
 }
 
-// ruSuffixes — common Russian inflectional endings, stripped longest-first (sorted at
+// ruSuffixes — inflectional endings of the shipped example language, stripped longest-first (sorted at
 // init). stemRu removes the first suffix that leaves a stem of >= 3 runes.
 var ruSuffixes = func() []string {
 	s := []string{
@@ -228,7 +229,7 @@ func hasCyrillic(s string) bool {
 	return false
 }
 
-// stemRu folds an inflected Russian word to a stem by stripping the longest matching
+// stemRu folds an inflected word to a stem by stripping the longest matching
 // inflectional suffix while keeping the stem >= 3 runes. Non-Cyrillic tokens and short
 // words (< 5 runes) pass through unchanged.
 func stemRu(t string) string {
@@ -250,7 +251,7 @@ func stemRu(t string) string {
 
 // analyzeTokens post-processes raw tokens for the active corpus. stem=false (default /
 // code corpus) is a pass-through preserving baseline behavior exactly. stem=true (an opted-in namespace)
-// drops Russian stopwords and stems the remaining Cyrillic tokens.
+// drops the stopwords of the stemmed language and stems its remaining tokens.
 func analyzeTokens(toks []string, stem bool) []string {
 	if !stem {
 		return toks
@@ -734,7 +735,7 @@ func corporaWikiPath(namespace string) string {
 	return p
 }
 
-// corporaStem reports whether the namespace's corpus opts into Russian stemming
+// corporaStem reports whether the namespace's corpus opts into stemming
 // (corpora.json "stem": true). Empty namespace / miss -> false (default corpus).
 func corporaStem(namespace string) bool {
 	if namespace == "" {

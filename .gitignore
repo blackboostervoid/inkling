@@ -41,3 +41,6 @@ hooks/recall/*.exe
 hooks/capture/capture_cd_*.json
 hooks/capture/*.exe
 hooks/capture/capture_ctx_*.json
+
+# Authoring draft, not part of the published repo
+README.ru.md

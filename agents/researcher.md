@@ -136,6 +136,7 @@ A recommendation resting only on `anecdotal` sources must say so in the report. 
 
 ## Rules
 
-- Saved file content: English. Report to caller: Russian.
+- Saved file content: the vault's working language. Report to the caller: the language the
+  user is working in.
 - Non-technical topics (opinion, methodology without API specifics) — skip the Obsidian save, still return the report.
 - Uncertain facts → `confidence: low`, flag gaps explicitly.

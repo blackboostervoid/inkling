@@ -57,7 +57,7 @@ SLUG_MAX_LEN = 48
 
 
 def slugify(title: str) -> str:
-    # Transliterate Cyrillic -> latin so a Russian title yields a typeable ASCII slug
+    # Transliterate non-Latin -> latin so a title in any script yields a typeable ASCII slug
     # (recipes are promoted by slug on the command line). Drop any other non-ascii, then
     # cap the length at a word boundary so titles do not produce a monster slug.
     lowered = "".join(_CYR_LAT.get(ch, ch) for ch in title.strip().lower())

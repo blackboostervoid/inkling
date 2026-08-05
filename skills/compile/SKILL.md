@@ -90,9 +90,9 @@ related:
 ```
 
 Rules:
-- `tags` — always YAML block list, ~10 items, primarily Russian conversational triggers + essential English technical terms.
+- `tags` — always a YAML block list, ~10 items, written in the words the user actually types when asking, plus the technical terms that have no translation.
 - `sources` — list of attribution strings (not an integer counter). Each source is a short human-readable string.
-- `summary` — quoted string, 2-3 sentences in Russian. **Must contain at least 2 keywords overlapping with `tags`** (stem-match ok). This is a contract with the recall system: if summary and tags drift apart, recall breaks.
+- `summary` — quoted string, 2-3 sentences in the vault's working language. **Must contain at least 2 keywords overlapping with `tags`** (stem-match ok). This is a contract with the recall system: if summary and tags drift apart, recall breaks.
 - `related` — block list of relative paths; omit if none.
 
 ### 4b. Registration — none (INDEX retired)
@@ -234,7 +234,7 @@ Log appended. (No INDEX — notes register via frontmatter; recall corpus rebuil
 
 ## Rules
 
-- Communication with user: Russian.
+- Talk to the user in the language they write to you in.
 - Wiki page content: English.
 - Batch: process 5–10 files per run when queue is large.
 - **Core immutability is non-negotiable.** When in doubt, classify as content change and ask. Better a wasted approval than a silent rewrite.
@@ -242,7 +242,7 @@ Log appended. (No INDEX — notes register via frontmatter; recall corpus rebuil
 - Raw files with mixed topics → split into separate entity actions in the plan.
 - Personal prompts / non-technical content → flag for manual move, do not compile into LLM wiki.
 - Summary-tag contract: ≥2 tag keywords must appear (stem-match) in the summary text. If validation fails, rewrite summary before diff preview.
-- Tag count target: ~10. Language mix: Russian conversational triggers dominant, English for technical terms that have no natural Russian equivalent.
+- Tag count target: ~10. Language: the vault's working language for the conversational triggers, with technical terms left in whatever form they are actually written and searched.
 
 ### Write-correctness laws (obsidian-mind harvest — apply while composing)
 

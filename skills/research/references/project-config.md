@@ -63,7 +63,7 @@ One `##` block per rejected topic. `topic-slug` is kebab-case and matches how th
 
 ## cerebras-inference
 date: 2026-03-14
-reason: no Russian TTS models available, entire stack is TTS not LLM inference
+reason: no models available for the target language, entire stack is TTS not LLM inference
 alternatives_considered: [groq, replicate]
 
 ## xformers-attention

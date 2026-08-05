@@ -2,7 +2,7 @@
 # @role: On-demand Tier-2 semantic search over the wiki — the meaning-based complement to the lexical recall_scanner. NOT on the hot path: the agent invokes it by hand when lexical [RECALL] missed and the query is conceptual (relevant note, no shared surface words).
 # @deps: stdlib + urllib (zero third-party); ollama + bge-m3 embedding model (local HTTP)
 # @used-by: invoked manually by the agent via Bash (see CLAUDE.md Tier-2 note); not wired to any hot-path hook
-# @doc: harvested from obsidian-mind QMD. Kept OFF the per-prompt hook (embedding latency + cross-machine model sync would break the hot path). bge-m3 chosen for strong multilingual/Russian; already pulled in ollama.
+# @doc: harvested from obsidian-mind QMD. Kept OFF the per-prompt hook (embedding latency + cross-machine model sync would break the hot path). bge-m3 chosen for strong multilingual coverage; pull it in ollama first.
 """
 semantic.py — lexical recall's meaning-based twin, on demand.
 
@@ -14,7 +14,7 @@ runs when it suspects a lexical miss, not a per-prompt hook.
   py semantic.py index                 # (re)build the vector index incrementally
   py semantic.py search "<query>" [-k N]   # refresh, then cosine top-K
 
-Engine: ollama + bge-m3 (1024-dim, multilingual — the Russian wiki needs it), embedded over each
+Engine: ollama + bge-m3 (1024-dim, multilingual, which a vault in any language needs), embedded over each
 note's name+tags+summary from the compiled corpus. Vectors are L2-normalized and cached in
 semantic_index.json keyed by path+text-hash, so a rebuild only re-embeds notes whose essence
 changed. ollama down / model missing -> graceful message, exit 0, fall back to lexical.
@@ -200,7 +200,7 @@ def first_sentence(summary: str, limit: int = 130) -> str:
 # CLI
 # ============================================================
 def main() -> int:
-    # Wiki output is Russian; Windows Python defaults stdout to cp1251, which mangles Cyrillic and
+    # Vault output may be non-ASCII; Windows Python defaults stdout to a locale codepage, which mangles it and
     # crashes on chars like → in summaries. Force UTF-8 so results print (and pipe) correctly.
     for stream in (sys.stdout, sys.stderr):
         try:

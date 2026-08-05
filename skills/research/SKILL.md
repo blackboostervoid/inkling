@@ -243,7 +243,7 @@ On no → proceed normally, no file touched.
 
 - Delegate research to the `researcher` agent — never use WebSearch/WebFetch directly.
 - **Never start research without a resolved effort level.** Ask; do not default silently.
-- All communication with user: Russian (casual).
+- Talk to the user in the language they write to you in, casually.
 - Frontmatter contract, tag vocab lock, registration (INDEX-less — tags register the note) — responsibility of the researcher agent (see its MEMORY.md). Skill does not duplicate those rules.
 - The effort ladder's source budgets live in `agents/researcher.md`. This file routes by level; it does not restate the numbers.
 - Effort level and rejected list are passed inline in the agent prompt — the agent does not read them from disk.

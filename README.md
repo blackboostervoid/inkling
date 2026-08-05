@@ -20,6 +20,8 @@ Books are mined by cheap scout agents. The book is cut into units, the scouts re
 
 And at the end of a long session, the system points out that something worth keeping happened. It never writes a note on its own. That call stays yours.
 
+Once in a while a note turns out to be a procedure you keep re-deriving rather than a fact you looked up. `/crystallize` catches those: it reads what recently landed, compares it against the skills and agents you already have, and proposes either extending one or building something new. Its default answer is that a note stays a note, so most runs end in one line.
+
 ## What it looks like in use
 
 Every block below is real output, copied from the acceptance run you can execute yourself. The
@@ -158,6 +160,8 @@ summary: >
 ```
 
 Write tags in the words you ask questions with, not the words your architecture is named with. Put the conclusion in the summary, not the topic. "A retry without a circuit breaker takes the system down" can be found and judged. "About retries and timeouts" cannot.
+
+**Write in the language you actually talk to your agent in, and stay with one.** The default is English. This is mechanics, not style: a tag matches by appearing in your prompt, so a tag in a language you never type never fires, and the silence looks exactly like an empty vault. If your language declines its nouns, turn on the optional stemmer with `"stem": true` in `corpora.json`, or the dictionary form will keep missing every other case.
 
 The full format is in [VAULT_CONTRACT.md](VAULT_CONTRACT.md). The recipe format for the second rail is in [RECIPE_FORMAT.md](RECIPE_FORMAT.md).
 

@@ -47,7 +47,7 @@ job. You silently drop them.
 </decision_matrix>
 
 <keywords>
-The source artifacts mix Russian and English freely, and so do real project terms.
+The source artifacts often mix languages, and so do real project terms.
 Treat domain vocabulary literally, in whatever language it appears — do NOT translate,
 normalize, or unify it. A future scanner matches these words as substrings against raw
 session text, so the surface form must survive intact.

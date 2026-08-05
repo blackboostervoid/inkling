@@ -154,7 +154,7 @@ note that the active `procedural.md` and its compiled JSON are now updated and t
 surface them on matching prompts.
 
 ## Rules
-- Communication with user: Russian. Recipe content: keep whatever language it was distilled in.
+- Talk to the user in the language they write to you in. Recipe content: keep whatever language it was distilled in.
 - Promotion is automated for NON-conflicting candidates (SessionStart + batch auto-promote). Your
   manual `promote` is for forcing a flagged/held one the user explicitly judges good. The human is
   the wall only for CONFLICTS and for output-side `archive`, not for clean input.

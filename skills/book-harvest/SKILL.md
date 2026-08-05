@@ -196,7 +196,8 @@ The marker is the fallback, not the contract. The contract is that this skill fi
 ---
 
 ## Rules
-- Communication with user: Russian. Note content: English.
+- Talk to the user in the language they write to you in. Note content follows the vault's
+  working language (see VAULT_CONTRACT.md).
 - **Main context reads only meta.json + scout JSON + its own notes — never chapter bodies.** This is the load-bearing rule.
 - One scout = one chapter. Parallelize; never serialize independent scouts.
 - Density gate is real: never pad to reach the floor, never exceed `--max`.

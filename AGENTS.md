@@ -145,8 +145,10 @@ things, in about a paragraph each:
    a question touches them; research they ask for gets saved instead of scrolling past; a long
    session will offer to keep what was worth keeping.
 3. **What they have to do** — write notes with tags and a summary, because that is what retrieval
-   reads; put unprocessed material in `raw/` and run `/compile`; say yes or no when the system
-   proposes something for the vault, since nothing is written without them.
+   reads; write them in the language they actually talk to their agent in and stay with one,
+   since a tag in a language they never type never matches; put unprocessed material in `raw/`
+   and run `/compile`; say yes or no when the system proposes something for the vault, since
+   nothing is written without them.
 4. **The one thing that would break it** — moving the vault without updating `CLAUDE_WIKI_PATH`.
 
 Be accurate about what it does not do. It does not read their notes' bodies to find them, it does
