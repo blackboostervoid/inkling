@@ -637,6 +637,7 @@ const railBrokenHeader = "[RAIL-BROKEN] A recall corpus failed to load. This is 
 //   - at most one linked note is added;
 //   - a note already in the results is never re-added;
 //   - the hop does not chain, so a link two steps out cannot reach the prompt.
+//
 // The linked note is marked in the output rather than blended in, since it did not
 // match anything the user typed.
 func linkedMatches(matches []Match, index []IndexEntry) []Match {

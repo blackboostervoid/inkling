@@ -22,6 +22,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -70,6 +71,35 @@ def check_hook_commands(tracked: set) -> list:
     return missing
 
 
+def check_go_formatting(tracked: set) -> list:
+    """gofmt the bytes GIT stores, not the bytes on disk.
+
+    Those differ. A working copy on Windows holds CRLF while the repository holds LF,
+    and gofmt reads the two differently: a local `gofmt -l` came back clean while CI,
+    running on the checked-out LF form, refused the same file. Checking the blob is the
+    only way for a local run to mean what the CI run means."""
+    problems = []
+    for rel in sorted(f for f in tracked if f.endswith(".go")):
+        blob = subprocess.run(["git", "show", f"HEAD:{rel}"], cwd=REPO,
+                              capture_output=True, check=False)
+        if blob.returncode != 0:
+            continue  # not committed yet; the next commit is what CI will judge
+        with tempfile.NamedTemporaryFile(suffix=".go", delete=False) as tmp:
+            tmp.write(blob.stdout)
+            tmp_path = tmp.name
+        try:
+            out = subprocess.run(["gofmt", "-l", tmp_path], capture_output=True, text=True, check=False)
+            if out.returncode != 0:
+                problems.append(f"gofmt could not read `{rel}`: {out.stderr.strip()[:80]}")
+            elif out.stdout.strip():
+                problems.append(f"`{rel}` is not gofmt-clean as stored in git; run gofmt -w on it")
+        except FileNotFoundError:
+            return []  # no Go toolchain here; CI has one and will judge it
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
+    return problems
+
+
 def check_referenced_docs(tracked: set) -> list:
     """Docs the contract tells the reader to open must exist in the clone too."""
     missing = []
@@ -87,7 +117,8 @@ def main() -> int:
     tracked = tracked_files()
     print(f"[INFO] {len(tracked)} files tracked by git")
 
-    problems = check_install_table(tracked) + check_hook_commands(tracked) + check_referenced_docs(tracked)
+    problems = (check_install_table(tracked) + check_hook_commands(tracked)
+                + check_referenced_docs(tracked) + check_go_formatting(tracked))
     if problems:
         print(f"[ERROR] {len(problems)} promise(s) the repository does not keep:")
         for p in problems:
