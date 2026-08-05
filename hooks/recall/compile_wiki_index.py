@@ -153,6 +153,7 @@ def build(wiki_root: Path, entries: List[Dict]) -> List[Dict]:
             "path": entry["path"],
             "tags": entry["tags"],
             "summary": summary,
+            "related": extract_related(text),
         })
     return result
 
@@ -163,6 +164,8 @@ def build(wiki_root: Path, entries: List[Dict]) -> List[Dict]:
 
 _FM_TAGS_INLINE = re.compile(r"^tags:\s*\[([^\]]*)\]", re.MULTILINE)
 _FM_TAGS_BLOCK = re.compile(r"^tags:\s*\n((?:[ \t]*-[ \t]*.+\n?)+)", re.MULTILINE)
+_FM_RELATED_INLINE = re.compile(r"^related:\s*\[([^\]]*)\]", re.MULTILINE)
+_FM_RELATED_BLOCK = re.compile(r"^related:\s*\n((?:[ \t]*-[ \t]*.+\n?)+)", re.MULTILINE)
 _ENUM_EXCLUDE_DIRS = {".obsidian", ".claude", ".git", "raw", "media", "bases", "node_modules"}
 
 
@@ -181,6 +184,36 @@ def extract_tags(content: str) -> List[str]:
         items = [ln.strip()[1:].strip() for ln in mb.group(1).splitlines() if ln.strip().startswith("-")]
         return [i for i in items if i]
     return []
+
+
+def extract_related(content: str) -> List[str]:
+    """Frontmatter `related` - the note's own outgoing links, in the same two shapes as
+    `tags`. Values are vault-relative paths ("patterns/foo.md") or bare note names, and
+    Obsidian's [[wiki-link]] spelling is accepted too.
+
+    These are NOT part of the ranked document. The ranker never sees them; they are read
+    so the scanner can take ONE hop from a match it already believes in."""
+    m = _FM_BLOCK_RE.match(content)
+    if not m:
+        return []
+    block = m.group(1)
+    mi = _FM_RELATED_INLINE.search(block)
+    if mi:
+        items = [x.strip() for x in mi.group(1).split(",")]
+    else:
+        mb = _FM_RELATED_BLOCK.search(block)
+        if not mb:
+            return []
+        items = [ln.strip()[1:].strip() for ln in mb.group(1).splitlines()
+                 if ln.strip().startswith("-")]
+    cleaned = []
+    for raw in items:
+        value = raw.strip().strip('"').strip("'").strip()
+        if value.startswith("[[") and value.endswith("]]"):
+            value = value[2:-2].strip()
+        if value:
+            cleaned.append(value)
+    return cleaned
 
 
 def enumerate_from_frontmatter(wiki_root: Path) -> List[Dict]:
@@ -210,6 +243,7 @@ def enumerate_from_frontmatter(wiki_root: Path) -> List[Dict]:
             "path": rel.as_posix(),
             "tags": tags,
             "summary": summary,
+            "related": extract_related(text),
         })
 
     # A tagged note without a summary is IN the corpus and effectively mute: half its

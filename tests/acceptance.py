@@ -63,6 +63,8 @@ class Sandbox:
             "---\n"
             "type: pattern\n"
             "tags: [circuit-breaker, retry, resilience, timeout, outage]\n"
+            "related:\n"
+            "  - patterns/yaml-booleans.md\n"
             "summary: >\n"
             "  A retry without a circuit breaker turns one slow dependency into a full outage:\n"
             "  every caller piles on while the callee is already saturated. Break the circuit\n"
@@ -116,8 +118,10 @@ class Sandbox:
                               encoding="utf-8", errors="replace", cwd=str(self.project),
                               env=self.env(**envkw))
 
-    def hook_input(self, prompt):
-        return json.dumps({"prompt": prompt, "session_id": "acceptance-0001",
+    def hook_input(self, prompt, session="acceptance-0001"):
+        # The scanner suppresses a name it already surfaced in the same session, so a
+        # check that needs an unspent corpus passes its own session id.
+        return json.dumps({"prompt": prompt, "session_id": session,
                            "transcript_path": str(self.transcript), "cwd": str(self.project)})
 
     @staticmethod
@@ -302,6 +306,19 @@ def check_context_unknown_window(sb):
           (ctx.splitlines() or ["<silence>"])[0][:130])
 
 
+def check_link_hop(sb):
+    """A note the prompt never mentioned arrives because the note that DID match links to
+    it, and the signal says so - the reader has to be able to tell the two apart."""
+    ctx = sb.context_of(sb.run(
+        [str(sb.bin("recall"))],
+        stdin=sb.hook_input("we keep hammering a slow service with retry logic", session="link-hop-0002")))
+    arrived = "yaml-booleans" in ctx
+    marked = "linked from circuit-breaker" in ctx
+    check("a linked note arrives with the match, and is marked as linked",
+          arrived and marked,
+          f"linked note present={arrived}, marked={marked}")
+
+
 def check_lens(sb):
     sb.run([PYTHON, sb.script("hooks", "recall", "lens_init.py")])
     user = (sb.config / "lens.yaml").is_file()
@@ -315,7 +332,7 @@ CHECKS = (check_build, check_compile, check_recall_fires, check_recall_silent,
           check_unconfigured, check_capture, check_context_quiet_below,
           check_context_fires, check_context_once, check_context_window_from_model,
           check_context_unknown_window,
-          check_evidence, check_lens)
+          check_evidence, check_link_hop, check_lens)
 
 
 def main() -> int:

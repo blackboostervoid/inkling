@@ -57,6 +57,25 @@ document that retrieval ranks against, and the note's body is not in it:
 }
 ```
 
+### The note that travels with it
+
+A note can say which other note belongs with it, in its own frontmatter:
+
+```yaml
+related:
+  - patterns/circuit-breaker.md
+```
+
+When the strongest match carries a link, one linked note comes with it, marked so you can tell it apart:
+
+```
+  - yaml-booleans: PyYAML defaults to YAML 1.1, so off/on/yes/no parse as booleans unless
+    quoted. -> patterns/yaml-booleans.md [linked from circuit-breaker - it did not match your
+    words, it is the note that one points to]
+```
+
+That is the answer to the obvious hole in literal matching: the note you need is about the same thing under different words. Only the top match hops, only one note is added, and the hop never chains, because a hop from a weak match multiplies noise instead of fixing it.
+
 ### Something you already did once, in this project
 
 The second rail stores procedure rather than knowledge. Ask how to rebuild the index and it hands

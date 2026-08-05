@@ -75,9 +75,14 @@ summary: >
   Same treatment for the folded-scalar marker.
 ```
 
-**Optional, read by humans and by other tooling but not by the ranker:** `type` (pattern / api /
-tool / concept / discovery), `confidence`, `sources`, `updated`, `related`. Keep them consistent
-because the vault health check reads them; the retrieval rail does not.
+**`related` — optional, and the one optional field that changes what you get back.** A block or
+inline list of vault-relative paths, bare note names, or Obsidian `[[wiki-links]]`. It is not part
+of the ranked document, so adding a link never makes a note easier to match. What it does is
+described in §6.
+
+**Optional, read by humans and by other tooling but not by retrieval at all:** `type` (pattern /
+api / tool / concept / discovery), `confidence`, `sources`, `updated`. Keep them consistent because
+the vault health check reads them; the retrieval rail does not.
 
 ## 4. Language
 
@@ -115,7 +120,28 @@ Alongside the substring ranker runs BM25 over the whole retrieval document, and 
 reciprocal rank. A note therefore has two ways to be found: a tag the prompt names outright, or
 enough shared vocabulary in name and summary. Neither alone has to carry it.
 
-## 6. Summary — written for a stranger deciding in one second
+## 6. `related` — the one hop
+
+Matching is literal, and literal matching has a known hole: the note you need is about the same
+thing under different words. `related` is how a note says *this one travels with me*, and the
+scanner walks exactly one of those edges.
+
+The rule, and it is deliberately timid because a hop from a weak match multiplies noise:
+
+- only the **strongest** match hops, never the rest;
+- **one** linked note is added, no matter how many the note lists;
+- a note already in the results is never added twice, and the hop **does not chain** — a link two
+  steps out cannot reach you;
+- the linked note is **marked in the signal** (`[linked from <name>]`), because it did not match
+  anything you typed and the reader has to be able to tell the difference;
+- a link pointing at a note that no longer exists is skipped in silence.
+
+So a link is an assertion you make once, at writing time, that pays off later at reading time. Link
+what genuinely belongs together — the note that answers the question this one raises. Linking
+everything to everything turns the hop into noise, and since only one edge is walked, a long
+`related` list mostly means the first entry wins.
+
+## 7. Summary — written for a stranger deciding in one second
 
 The summary does two jobs at once, and both of them are load-bearing.
 
@@ -135,7 +161,7 @@ Therefore:
   that one line was enough to misroute a recommendation. When the note's status changes, the summary
   is the part that must change with it.
 
-## 7. `raw/` — the staging area
+## 8. `raw/` — the staging area
 
 `raw/` holds unprocessed material: a dump from a conversation, an article, the concept notes that
 `book-harvest` extracts from a book. It is excluded from the corpus by design, so nothing there
@@ -146,7 +172,7 @@ creates a new one in the right topical folder, and writes the frontmatter this c
 The rule the pipeline depends on: **material enters as raw and leaves as a note; nothing is authored
 straight into the corpus by a machine without passing that step.**
 
-## 8. Layout
+## 9. Layout
 
 ```
 <vault-root>/
@@ -162,14 +188,14 @@ straight into the corpus by a machine without passing that step.**
 Folders are for humans; retrieval does not care which one a note sits in. Choose few and obvious
 ones, and keep a note's folder stable — the path is how the reader's link survives.
 
-## 9. Multi-corpus, for a second vault
+## 10. Multi-corpus, for a second vault
 
 A second, separate vault (a personal one, a client's) registers in `corpora.json` as a namespace with
 its own path, and compiles to its own index. Namespaces use an `INDEX.md` membership list instead of
 globbing, which is what lets a corpus include notes living outside its own root. The default corpus
 never uses `INDEX.md` — for it, frontmatter is the only source.
 
-## 10. Tuning what surfaces — the lens
+## 11. Tuning what surfaces — the lens
 
 Per-project tuning lives in a lens file, and it does three things: `bridge` declares a cluster of
 terms that mean the same thing, so any one of them present in the prompt pulls in all the others as
@@ -177,7 +203,7 @@ virtual tags; `suppress` drops entries that are permanent noise for this project
 tag up. Ship an empty lens and one worked example — a lens is how a vault stops repeating a match
 nobody wants without deleting a note somebody else needs.
 
-## 11. The five checks before a note is done
+## 12. The five checks before a note is done
 
 1. Does it have `tags`? Without them it is not in the corpus at all.
 2. Would the tags appear, literally, in a question someone would ask?

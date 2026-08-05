@@ -34,6 +34,10 @@ type IndexEntry struct {
 	Path    string   `json:"path"`
 	Tags    []string `json:"tags"`
 	Summary string   `json:"summary"`
+	// Related carries the note's own outgoing links, straight from its frontmatter.
+	// It is NOT ranked against - the retrieval document stays name+tags+summary - and
+	// exists only for the single hop in linkedMatches.
+	Related []string `json:"related,omitempty"`
 }
 
 // Lens is loaded from lens.yaml files. Two locations, merged project-over-user:
@@ -98,6 +102,10 @@ type Match struct {
 	Bm25Rank   int
 	FusedScore float64
 	MatchedOn  []string
+	// LinkedFrom names the match that pulled this one in, empty for a direct match.
+	// The signal shows it, because a linked note was NOT what the prompt matched and
+	// the reader has to be able to tell the difference.
+	LinkedFrom string
 }
 
 // ========================================================================================
@@ -616,6 +624,65 @@ const railBrokenHeader = "[RAIL-BROKEN] A recall corpus failed to load. This is 
 	"Recall is BLIND for that rail this session. Tell the user now, quoting the error; do not treat a missing " +
 	"[RECALL]/[PROCEDURAL] block as evidence that the wiki or the recipe book has nothing on the topic."
 
+// ========================================================================================
+// LINK HOP — one step along the note's own `related` edges
+// ========================================================================================
+//
+// Written into a note by hand or by /compile, the `related` list is an assertion that
+// two notes travel together. This walks exactly one edge out of the STRONGEST match, so
+// a note that is right but worded differently can still arrive.
+//
+// It is deliberately timid, because a hop from a weak match is a noise multiplier:
+//   - only the top match hops, never the rest;
+//   - at most one linked note is added;
+//   - a note already in the results is never re-added;
+//   - the hop does not chain, so a link two steps out cannot reach the prompt.
+// The linked note is marked in the output rather than blended in, since it did not
+// match anything the user typed.
+func linkedMatches(matches []Match, index []IndexEntry) []Match {
+	if len(matches) == 0 {
+		return matches
+	}
+	source := matches[0]
+	if len(source.Entry.Related) == 0 {
+		return matches
+	}
+
+	present := make(map[string]bool, len(matches))
+	for _, m := range matches {
+		present[m.Entry.Path] = true
+		present[m.Entry.Name] = true
+	}
+
+	byKey := make(map[string]IndexEntry, len(index)*2)
+	for _, e := range index {
+		byKey[e.Path] = e
+		byKey[e.Name] = e
+	}
+
+	for _, ref := range source.Entry.Related {
+		ref = strings.TrimSpace(ref)
+		if ref == "" || present[ref] {
+			continue
+		}
+		entry, ok := byKey[ref]
+		if !ok {
+			// A link can point at a note that was deleted or never existed. That is the
+			// author's problem, not the scanner's: skip it silently and keep going.
+			continue
+		}
+		if present[entry.Path] || present[entry.Name] {
+			continue
+		}
+		return append(matches, Match{
+			Entry:      entry,
+			FusedScore: source.FusedScore,
+			LinkedFrom: source.Entry.Name,
+		})
+	}
+	return matches
+}
+
 // formatSignal renders one matched-corpus block: a header plus one line per match
 // (name: summary -> pathPrefix+path). Shared by the wiki ([RECALL]) and procedural
 // ([PROCEDURAL]) rails — they differ only in header and path prefix.
@@ -626,12 +693,17 @@ func formatSignal(matches []Match, header, pathPrefix string) string {
 		if summary == "" {
 			summary = "(no summary)"
 		}
+		linked := ""
+		if m.LinkedFrom != "" {
+			linked = fmt.Sprintf(" [linked from %s — it did not match your words, it is the note that one points to]", m.LinkedFrom)
+		}
 		parts = append(parts, fmt.Sprintf(
-			"  - %s: %s → %s%s",
+			"  - %s: %s → %s%s%s",
 			m.Entry.Name,
 			summary,
 			pathPrefix,
 			m.Entry.Path,
+			linked,
 		))
 	}
 	return strings.Join(parts, "\n")
@@ -968,11 +1040,11 @@ func main() {
 	// Two passes over the SAME ranking engine: wiki (Layer 5) then procedural
 	// (Layer 6). Shared per-session cooldown — a name surfaced by the first pass
 	// is suppressed in the second. Each pass self-caps at maxResults (2+2).
-	wikiMatches := findMatches(input.Prompt, wikiIndex, lens, recalled)
+	wikiMatches := linkedMatches(findMatches(input.Prompt, wikiIndex, lens, recalled), wikiIndex)
 	for _, m := range wikiMatches {
 		recalled = append(recalled, m.Entry.Name)
 	}
-	procMatches := findMatches(input.Prompt, procIndex, lens, recalled)
+	procMatches := linkedMatches(findMatches(input.Prompt, procIndex, lens, recalled), procIndex)
 	for _, m := range procMatches {
 		recalled = append(recalled, m.Entry.Name)
 	}

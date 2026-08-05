@@ -933,3 +933,111 @@ func TestFindMatches_StemSurfacesObliqueForm(t *testing.T) {
 		t.Errorf("stemming must surface nutrition on oblique 'питания'")
 	}
 }
+
+// ========================================================================================
+// v2.9 — one link hop along `related`
+// ========================================================================================
+
+func linkWiki() []IndexEntry {
+	return []IndexEntry{
+		{Name: "retry-storm", Path: "patterns/retry-storm.md", Tags: []string{"retry", "timeout"},
+			Summary: "retries pile onto a saturated callee", Related: []string{"patterns/circuit-breaker.md"}},
+		{Name: "circuit-breaker", Path: "patterns/circuit-breaker.md", Tags: []string{"breaker"},
+			Summary: "break the circuit after N failures"},
+		{Name: "unrelated", Path: "x/u.md", Tags: []string{"pizza"}, Summary: "nothing to do with it"},
+	}
+}
+
+func TestLinkHop_PullsTheLinkedNoteIn(t *testing.T) {
+	index := linkWiki()
+	matches := linkedMatches(findMatches("retry timeout problem", index, Lens{}, nil), index)
+	if len(matches) != 2 {
+		t.Fatalf("want the match plus its one link; got %d", len(matches))
+	}
+	if matches[1].Entry.Name != "circuit-breaker" {
+		t.Errorf("linked note must be the one `related` names; got %s", matches[1].Entry.Name)
+	}
+	if matches[1].LinkedFrom != "retry-storm" {
+		t.Errorf("a linked note must say what pulled it in; got %q", matches[1].LinkedFrom)
+	}
+	if matches[0].LinkedFrom != "" {
+		t.Errorf("a direct match must not be marked as linked")
+	}
+}
+
+func TestLinkHop_MarksTheLinkInTheSignal(t *testing.T) {
+	index := linkWiki()
+	matches := linkedMatches(findMatches("retry timeout problem", index, Lens{}, nil), index)
+	out := formatSignal(matches, "[RECALL]", "")
+	if !strings.Contains(out, "linked from retry-storm") {
+		t.Errorf("the signal must say a note arrived by link, not by matching; got:\n%s", out)
+	}
+}
+
+func TestLinkHop_SilentWithoutLinks(t *testing.T) {
+	index := []IndexEntry{{Name: "lonely", Path: "x/l.md", Tags: []string{"retry"}, Summary: "no links"}}
+	matches := linkedMatches(findMatches("retry", index, Lens{}, nil), index)
+	if len(matches) != 1 {
+		t.Errorf("a match with no `related` must not grow; got %d", len(matches))
+	}
+}
+
+func TestLinkHop_NeverDuplicates(t *testing.T) {
+	// Both notes match the prompt on their own AND link to each other.
+	index := []IndexEntry{
+		{Name: "a", Path: "x/a.md", Tags: []string{"retry"}, Summary: "one", Related: []string{"x/b.md"}},
+		{Name: "b", Path: "x/b.md", Tags: []string{"retry"}, Summary: "two", Related: []string{"x/a.md"}},
+	}
+	matches := linkedMatches(findMatches("retry", index, Lens{}, nil), index)
+	seen := map[string]bool{}
+	for _, m := range matches {
+		if seen[m.Entry.Name] {
+			t.Fatalf("note %s appears twice", m.Entry.Name)
+		}
+		seen[m.Entry.Name] = true
+	}
+}
+
+func TestLinkHop_DanglingLinkIsSkipped(t *testing.T) {
+	index := []IndexEntry{
+		{Name: "a", Path: "x/a.md", Tags: []string{"retry"}, Summary: "one",
+			Related: []string{"x/deleted.md", "x/b.md"}},
+		{Name: "b", Path: "x/b.md", Tags: []string{"unrelated-word"}, Summary: "two"},
+	}
+	matches := linkedMatches(findMatches("retry", index, Lens{}, nil), index)
+	if len(matches) != 2 || matches[1].Entry.Name != "b" {
+		t.Fatalf("a link to a missing note must be skipped, not fatal; got %+v", matches)
+	}
+}
+
+func TestLinkHop_AddsAtMostOne(t *testing.T) {
+	index := []IndexEntry{
+		{Name: "hub", Path: "x/hub.md", Tags: []string{"retry"}, Summary: "hub",
+			Related: []string{"x/one.md", "x/two.md", "x/three.md"}},
+		{Name: "one", Path: "x/one.md", Tags: []string{"q"}, Summary: "1"},
+		{Name: "two", Path: "x/two.md", Tags: []string{"q"}, Summary: "2"},
+		{Name: "three", Path: "x/three.md", Tags: []string{"q"}, Summary: "3"},
+	}
+	matches := linkedMatches(findMatches("retry", index, Lens{}, nil), index)
+	if len(matches) != 2 {
+		t.Errorf("a hub note must add exactly one link, not all of them; got %d", len(matches))
+	}
+}
+
+func TestLinkHop_OnlyTheTopMatchHops(t *testing.T) {
+	// Two direct matches; only the stronger one is allowed to pull a link in.
+	index := []IndexEntry{
+		{Name: "strong", Path: "x/s.md", Tags: []string{"retry", "timeout"}, Summary: "retry timeout",
+			Related: []string{"x/linked.md"}},
+		{Name: "weak", Path: "x/w.md", Tags: []string{"retry"}, Summary: "retry only",
+			Related: []string{"x/other.md"}},
+		{Name: "linked", Path: "x/linked.md", Tags: []string{"zzz"}, Summary: "pulled in"},
+		{Name: "other", Path: "x/other.md", Tags: []string{"zzz"}, Summary: "must not appear"},
+	}
+	matches := linkedMatches(findMatches("retry timeout", index, Lens{}, nil), index)
+	for _, m := range matches {
+		if m.Entry.Name == "other" {
+			t.Errorf("only the top match may hop; a lower match pulled %s in", m.Entry.Name)
+		}
+	}
+}
