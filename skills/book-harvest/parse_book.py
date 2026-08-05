@@ -52,14 +52,17 @@ FALLBACK_CHUNK_WORDS = 2800   # flat-text fallback chunk size (no headings prese
 HEADING_PATTERN = re.compile(r"^#{1,6}\s+\S", re.MULTILINE)
 
 # Structural front-matter / back-matter words matched against the (short) block TITLE.
-# Bilingual: the same parser serves Russian and English books.
+# Multilingual by design: a book is not always in English. English patterns come first;
+# the rest are one example of adding another language. Append your own the same way.
 TITLE_JUNK_PATTERNS = [
     re.compile(p, re.IGNORECASE) for p in (
+        r"table of contents", r"about the author", r"acknowledg", r"bibliography",
+        r"^\W*index\W*$", r"^\W*foreword", r"^\W*preface", r"^\W*introduction",
+        r"translator's note", r"further reading", r"colophon",
+        # Another language, as an example of extending the list.
         r"оглавл", r"содержание", r"предислов", r"вступлен", r"^\W*от автора",
         r"об авторе", r"от переводчика", r"благодарност", r"выходные данные",
         r"библиограф", r"список литератур", r"предметный указател", r"примечани",
-        r"table of contents", r"about the author", r"acknowledg", r"bibliography",
-        r"^\W*index\W*$", r"^\W*foreword", r"^\W*preface",
         # Back-matter: endnote blocks and single-letter index headings.
         # PDF backends emit "NOTES", repeated "GO TO NOTE REFERENCE IN TEXT" anchors,
         # and per-letter index sections ("B", "C", ... "S / T / U") — none carry ideas.

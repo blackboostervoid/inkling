@@ -182,16 +182,20 @@ func tokenize(s string) []string {
 }
 
 // ========================================================================================
-// RUSSIAN STEMMING (v2.8) — per-corpus, opt-in via corpora.json "stem": true
+// STEMMING FOR INFLECTED LANGUAGES — per-corpus, opt-in via corpora.json "stem": true
 // ========================================================================================
 //
-// Russian is heavily inflected: a nominative tag ("пайка") misses an oblique prompt form
-// ("про пайку") on both the substring rail and BM25. A light suffix stemmer folds inflected
-// forms to a shared stem ("пайк") so BM25 matches across cases, and a stopword drop removes
-// noise words ("нет", "как") that otherwise cause spurious single-rail hits. Applied ONLY
-// when the active corpus opts in; the default code corpus stays byte-identical, so
-// baseline behavior and tests are unchanged. Stdlib-only — keeps the per-machine (incl. ARM
-// laptop) build light, no dependency.
+// English needs none of this and the default corpus does not use it. A language that
+// declines its nouns does: a tag in the dictionary form misses the same word in another
+// case, on both the substring rail and BM25, and the miss is silent. A light suffix stemmer
+// folds inflected forms to a shared stem so BM25 matches across cases, and a stopword drop
+// removes the connective words that otherwise cause spurious single-rail hits.
+//
+// Russian ships as the worked example, because it is heavily inflected and therefore the
+// hard case. Supporting another language means adding its suffix list and stopwords beside
+// these; nothing else in the ranker changes. Applied ONLY when the active corpus opts in,
+// so the default stays byte-identical and its tests are unaffected. Stdlib-only, no
+// dependency, which keeps the per-machine build light.
 
 var ruStopwords = map[string]bool{
 	"не": true, "на": true, "по": true, "из": true, "от": true, "до": true, "за": true,

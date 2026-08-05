@@ -118,7 +118,7 @@ func boundaryOK(text string, start, end int) bool {
 // fenced code, table rows, headings, blockquotes, `CATEGORY:` labels, trigger-phrase lists.
 // The python twin (capture_inbox.py) applies the same four shapes plus a minimum length; length
 // is deliberately omitted here, because this hook classifies a line rather than staging it as a
-// quote, and a short real signal ("не сработало") must still fire.
+// quote, and a short real signal ("dead end") must still fire.
 
 var (
 	fenceRe      = regexp.MustCompile("^\\s*(?:```|~~~)")

@@ -1,6 +1,6 @@
 ---
 name: capture-review
-description: Review the staged capture inbox — durable moments the capture harvester caught this/last session — and promote the real ones to their home (wiki / memory / rejected-list) or drop the rest. Triggers on - "/capture-review", "разбери инбокс", "ревью захвата", "проверь capture inbox", "capture review".
+description: Review the staged capture inbox — durable moments the capture harvester caught this/last session — and promote the real ones to their home (wiki / memory / rejected-list) or drop the rest. Triggers on - "/capture-review", "review the inbox", "check capture inbox", "capture review".
 allowed-tools: Read, Write, Edit, Glob, Grep
 ---
 
@@ -15,7 +15,7 @@ kill the noise. Nothing here auto-writes without the user.
 
 Read `<cwd>/.claude/capture_inbox.md`. Each candidate is a line `- [category] "quote"` under a
 `## date · session` header. If the file is missing or has zero `- [` candidate lines → report
-"Инбокс пуст, нечего ревьюить" and stop.
+"The inbox is empty, nothing to review" and stop.
 
 ## Step 2 — Triage each candidate
 
@@ -37,16 +37,16 @@ Group the survivors by their suggested home:
 Show the survivors grouped, with your promote target for each, and the ones you propose to drop:
 
 ```
-Инбокс: N кандидатов
+Inbox: N candidates
 
-Предлагаю ПРОМОУТ:
+Suggested PROMOTE:
 1. [decision] "..." → auto_memory/<project>/decision_X.md
-2. [pattern]  "..." → wiki: /compile pattern-страницу
+2. [pattern]  "..." -> wiki: /compile a pattern page
 
-Предлагаю ДРОП (шум):
-3. [gotcha] "..." — казуальная фраза, не durable
+Suggested DROP (noise):
+3. [gotcha] "..." - a casual turn of phrase, not durable
 
-Применить? (да / выбери номера / правки)
+Apply? (yes / pick numbers / edits)
 ```
 
 Wait for the user. Never promote a `pattern` into the wiki without the `/compile` gate or explicit
@@ -66,14 +66,14 @@ approval — the wiki write contract (single-source, graph-first, atomicity) sti
 ## Step 5 — Report
 
 ```
-Промоутнуто: K [список с путями]
-Дропнуто: M
-Осталось в инбоксе: R
+Promoted: K [list with paths]
+Dropped: M
+Left in the inbox: R
 ```
 
 ## Rules
 - Communication: Russian.
 - Judgment over volume — dropping most catches is normal and healthy; the inbox is a wide net, not a mandate to keep.
-- Never auto-write on trigger — Step 3 confirmation gate is mandatory unless the user said "промоуть всё".
+- Never auto-write on trigger — Step 3 confirmation gate is mandatory unless the user said "promote everything".
 - A promoted note obeys its home's contract (memory format, or wiki single-source/graph-first via `/compile`). This skill stages the seed; the home owns the shape.
 - Idempotent: re-running on an already-clean inbox is a no-op.

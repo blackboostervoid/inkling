@@ -1,41 +1,52 @@
 {
-  "_comment": "Capture signals for capture_scanner (UserPromptSubmit rail). Conservative multi-word phrases keep false positives low; tune here WITHOUT recompiling (Go reads this at runtime). Matching is case-insensitive with Unicode word-boundary checks, so a phrase only fires when flanked by non-letters. Add a phrase to widen a category; remove one to quiet it. English and Russian phrases ship together because the matcher does not care which language the prompt is in - add your own the same way. The hint is what the agent reads, and it is a suggestion: nothing becomes a note without the user.",
+  "_comment": "Capture signals for capture_scanner (UserPromptSubmit rail). Conservative multi-word phrases keep false positives low; tune here WITHOUT recompiling (Go reads this at runtime). Matching is case-insensitive with Unicode word-boundary checks, so a phrase only fires when flanked by non-letters. Add a phrase to widen a category; remove one to quiet it. The shipped phrases are English because that is the default working language; if you talk to your agent in another language, add its phrases here - the matcher is Unicode-aware and does not care which language it is given. The hint is what the agent reads, and it is a suggestion: nothing becomes a note without the user.",
   "categories": [
     {
       "id": "decision",
       "hint": "This looks like a DECISION. If it is durable, meaning it shapes future work, record it together with the reason behind it so the same choice is not reopened in a month.",
       "patterns": [
-        "решили что", "решено", "мы выбрали", "решил использовать", "договорились",
-        "остановились на", "финальное решение", "принял решение", "выбираем вариант",
-        "we decided", "i decided", "let's go with", "we'll use", "agreed to",
-        "final decision", "we chose", "going with"
+        "we decided",
+        "i decided",
+        "let's go with",
+        "we'll use",
+        "agreed to",
+        "final decision",
+        "we chose",
+        "going with"
       ]
     },
     {
       "id": "gotcha",
       "hint": "This looks like a GOTCHA: a trap that is not obvious from the outside. Record the symptom that gives it away, not only the fix, so the next encounter is recognised instead of re-debugged.",
       "patterns": [
-        "оказалось что", "подвох в том", "грабли", "чуть не", "важный нюанс",
-        "коварн", "легко забыть", "не очевидно что", "тонкий момент",
-        "turns out", "gotcha", "the catch is", "watch out for", "easy to miss", "footgun"
+        "turns out",
+        "gotcha",
+        "the catch is",
+        "watch out for",
+        "easy to miss",
+        "footgun"
       ]
     },
     {
       "id": "pattern",
       "hint": "This looks like a recurring PATTERN or rule. Recurring knowledge belongs in one note rather than resurfacing in conversation after conversation: stage it in raw/ and run /compile.",
       "patterns": [
-        "как правило", "золотое правило", "по канону", "общий паттерн",
-        "устойчивый паттерн", "правило большого пальца", "каждый раз одно и то же",
-        "rule of thumb", "as a rule", "the pattern here", "every time we", "always worth"
+        "rule of thumb",
+        "as a rule",
+        "the pattern here",
+        "every time we",
+        "always worth"
       ]
     },
     {
       "id": "rejected",
       "hint": "This looks like a REJECTED approach. Record it with the reason it failed, so the same dead end is not explored again in six months.",
       "patterns": [
-        "не сработало", "не вариант", "отказались от", "зашло в тупик",
-        "тупиковый", "провалилось", "не взлетел", "отвергли",
-        "didn't work", "not an option", "ruled out", "dead end", "won't work because"
+        "didn't work",
+        "not an option",
+        "ruled out",
+        "dead end",
+        "won't work because"
       ]
     }
   ]

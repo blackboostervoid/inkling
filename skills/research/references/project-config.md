@@ -75,7 +75,7 @@ reason: doesn't build on Windows without WSL; project policy is native Windows
 
 Three ways to add entries (all handled by `/research`, no manual file edits required):
 
-1. **Post-research rejection capture.** After `/research` presents findings, if the user rejects the approach ("не, не подходит", "не берём", "bad fit"), the skill offers: *«Записать в rejected list? Причина одной строкой?»*. One confirmation + reason → appended.
+1. **Post-research rejection capture.** After `/research` presents findings, if the user rejects the approach ("no, that does not fit", "we will not use it", "bad fit"), the skill offers: *"Record this in the rejected list? One line for the reason?"*. One confirmation + reason → appended.
 2. **`/research --reject <slug> | <reason>` shorthand.** Skips research entirely — and skips the effort question too. Directly appends an entry. Use when the user already knows something is off-limits.
 3. **Manual edit.** Plain markdown; edit by hand if needed. Format is stable.
 
@@ -86,7 +86,7 @@ The agent scans rejected entries and matches against the current topic:
 - **Obvious synonym** (user says "cerebras api" ≈ `cerebras-inference`) → early-exit, same treatment.
 - **No match** → proceed with normal research.
 
-On match the agent returns a structured rejection report instead of running web search. The user can always override: *«Всё равно исследуй — причина могла устареть»*.
+On match the agent returns a structured rejection report instead of running web search. The user can always override: *"Research it anyway, the reason may be stale"*.
 
 ---
 

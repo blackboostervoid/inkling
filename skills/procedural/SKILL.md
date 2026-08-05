@@ -1,6 +1,6 @@
 ---
 name: procedural
-description: Curate procedural-memory candidates (the memory stack Layer 6) — the conflicts, merges and batch distillation that auto-promotion leaves to a human. A rules mode distils SKILLS into CLAUDE.md rule candidates. Triggers on - "/procedural", "проверь рецепты", "процедурная память", "дистилляция правил".
+description: Curate procedural-memory candidates (the memory stack Layer 6) — the conflicts, merges and batch distillation that auto-promotion leaves to a human. A rules mode distils SKILLS into CLAUDE.md rule candidates. Triggers on - "/procedural", "review the recipes", "procedural memory", "distil rules".
 allowed-tools: Bash, Read, Edit, Agent
 ---
 

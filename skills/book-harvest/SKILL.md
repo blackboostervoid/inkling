@@ -1,6 +1,6 @@
 ---
 name: book-harvest
-description: Harvest reusable concepts from a book (pdf/epub/fb2/md/txt) into raw concept notes for the wiki, then hand off to /compile. Haiku scouts read the units; the main context sees only their summaries. Triggers on - "/book-harvest", "разбери книгу", "выжми концепты из книги".
+description: Harvest reusable concepts from a book (pdf/epub/fb2/md/txt) into raw concept notes for the wiki, then hand off to /compile. Haiku scouts read the units; the main context sees only their summaries. Triggers on - "/book-harvest", "mine this book", "extract concepts from a book".
 allowed-tools: Agent, Bash, Grep, Read, Write, Skill
 disable-model-invocation: false
 argument-hint: <path-to-book> [--max N] [--min-density 3]
@@ -37,7 +37,7 @@ out to cheap haiku scouts (one per chapter); the main context sees only their co
 
 ## Step 0 — Resolve arguments
 
-1. Source = first positional arg. If missing → ask: *«Путь к книге?»* and stop.
+1. Source = first positional arg. If missing → ask: *"Path to the book?"* and stop.
    The arg may be a **book file** OR a **YouTube URL / 11-char video id** — `parse_book.py` fetches
    the transcript and slices it exactly like a book (same `meta.json` / `ch_NN.md` contract). Detect
    a YouTube input by `youtube.com` / `youtu.be` in the string, or a bare 11-char id.

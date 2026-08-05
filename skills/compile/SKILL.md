@@ -1,6 +1,6 @@
 ---
 name: compile
-description: Compile raw documents from Obsidian vault into structured wiki pages. Merges into existing pages or creates new ones. Triggers on - "/compile", "скомпилируй", "обработай raw", "собери в wiki".
+description: Compile raw documents from Obsidian vault into structured wiki pages. Merges into existing pages or creates new ones. Triggers on - "/compile", "process raw", "compile my notes", "turn raw into wiki pages".
 context: fork
 allowed-tools: Read, Write, Edit, Glob, Grep, Agent, WebFetch, WebSearch, Bash
 ---
@@ -54,10 +54,10 @@ If raw files reference GitHub repos, APIs, or external docs:
 Before writing any frontmatter, build the vault's existing tag vocabulary so new pages reuse canonical tags instead of minting synonyms.
 
 1. Build the canonical tag set from existing notes' frontmatter `tags` — `Grep` the `tags:` field across `$CLAUDE_WIKI_PATH/**/*.md`, or read the compiled corpus `$CLAUDE_CONFIG_DIR/hooks/recall/index_compiled.json` (each entry lists its tags — fastest, already aggregated).
-2. Build an in-memory set: `canonical_tags = {всё, что уже встречалось}`.
+2. Build an in-memory set: `canonical_tags = {every tag already in use}`.
 3. For each proposed new tag:
    - Exact match (case-insensitive, trimmed) → reuse canonical form.
-   - Obvious synonym (`anthropic` ↔ `антропик`, `GPT` ↔ `ГПТ`) → reuse existing.
+   - Obvious synonym or transliteration of an existing tag → reuse the existing one.
    - Truly new concept → add to proposed set, will become canonical after write.
 4. Report at the top of the diff preview:
    ```
@@ -74,10 +74,11 @@ Before writing any frontmatter, build the vault's existing tag vocabulary so new
 ---
 type: api | pattern | tool | concept | discovery
 tags:
-  - тег1
-  - тег2
+  - tag-one
+  - tag-two
   - ...
-summary: "2-3 предложения на русском. Что за страница, зачем нужна, ключевой инсайт."
+summary: "2-3 sentences in the vault's working language: what this page is, why it exists,
+         and the key insight. See VAULT_CONTRACT.md - state the conclusion, not the topic."
 confidence: high | medium | low
 sources:
   - "Attribution 1 — e.g. 'Original design: conversation 2026-04-14'"
@@ -164,13 +165,13 @@ Diff preview example:
 ```
 === patterns/prompt-engineering.md [CONTENT CHANGE — approval required] ===
 @@ frontmatter @@
-+  - новый-тег
--summary: "старое саммари"
-+summary: "обновлённое саммари (2+ tag keywords)"
++  - new-tag
+-summary: "the previous summary"
++summary: "the updated summary (2+ tag keywords)"
 @@ body @@
  ## Few-shot examples
--3-5 примеров дают лучший ROI
-+3-7 примеров (новые данные 2026) дают лучший ROI
+-3-5 examples give the best ROI
++3-7 examples give the best ROI (2026 data)
 ```
 
 ## Step 7 — Write
@@ -187,17 +188,17 @@ Checks:
 - **Recall-registrable** — every touched page lives in a content folder (`apis/ patterns/ tools/ concepts/ discoveries/ research/`) and has non-empty frontmatter `tags`. A note without frontmatter tags is invisible to recall (the new "orphan").
 - **Frontmatter completeness** — touched pages have all required fields (`type`, `tags`, `summary`, `confidence`, `sources`, `updated`).
 - **Summary-tag contract** — `summary` of each touched page contains ≥2 tag keywords (stem-match).
-- **Tag vocabulary drift** — any newly-introduced tag that has a near-duplicate already in the vault (`anthropic` vs `антропик`).
+- **Tag vocabulary drift** — any newly-introduced tag that has a near-duplicate already in the vault (`anthropic` vs a transliterated spelling of it).
 - **Correction-sweep** — when this run CHANGED a volatile fact (a price, token limit, model id, dated "as of" value) on a touched page, `Grep` the vault for the OLD value / the same entity across other pages. Every other page still stating the old value is a missed sweep → surface it: `[SWEEP] apis/other.md still says "<old value>" — update or link to the single source`. This is the write-time prevent side of `/lint` 2.8 `[DRIFT]`; catch the echo now, not three months later in an audit.
 
 If issues found → report them as:
 ```
 [LINT] Issues introduced by this compile:
 - [ORPHAN] patterns/new-page.md — no frontmatter tags → invisible to recall
-- [TAG-DRIFT] "anthropic" introduced; "антропик" already used in 15 pages
+- [TAG-DRIFT] "anthropic" introduced; a near-duplicate spelling already used in 15 pages
 - [SWEEP] apis/openai-api.md still says "$15/1M" — updated on apis/anthropic-api.md this run
 ```
-Ask user: *«Пофиксить сейчас (form-only) или оставить и запустить полный `/lint` позже?»*
+Ask the user: *"Fix now (form only), or leave it and run a full `/lint` later?"*
 
 Skip full-vault checks (stale, data gaps, cross-refs, contradictions) — those belong to `/lint`.
 
@@ -250,7 +251,7 @@ Log appended. (No INDEX — notes register via frontmatter; recall corpus rebuil
   cue to run the Correction-sweep (Step 8) so the copies never diverge.
 - **Mark inference.** A claim in the body not traceable to an entry in `sources:` is tagged
   `(unverified)` inline. Confidence rests on provenance — an unmarked guess reads as a fact and rots as one.
-- **Never hardcode a count that rots.** Do not write "18 команд", "3 провайдера", "5 моделей" as
+- **Never hardcode a count that rots.** Do not write "18 commands", "3 providers", "5 models" as
   prose. State it as "the commands listed in <X>" and let the list be the count. A frozen number is a
   future lie. (Audited by `/lint` 2.9 `[ROT-COUNT]`.)
 - **Atomicity — one concept per note (a RETRIEVAL-quality rule, not filing taste).** Each note covers

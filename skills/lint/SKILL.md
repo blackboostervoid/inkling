@@ -1,6 +1,6 @@
 ---
 name: lint
-description: Health-check the Obsidian LLM Wiki. Finds contradictions, stale pages, orphans, missing cross-references, and data gaps. Triggers on - "/lint", "проверь wiki", "здоровье wiki", "wiki health check", "lint wiki".
+description: Health-check the Obsidian LLM Wiki. Finds contradictions, stale pages, orphans, missing cross-references, and data gaps. Triggers on - "/lint", "check the vault", "vault health", "wiki health check", "lint wiki".
 context: fork
 allowed-tools: Read, Write, Edit, Glob, Grep
 ---
@@ -55,12 +55,12 @@ Consumes two live signals produced by the recall Stop-hooks — usefulness, not 
 1. Read `$CLAUDE_CONFIG_DIR/hooks/recall/recall_stats.json` (small JSON, may be absent → skip this
    check silently). Shape per note: `{fired_sessions:[...], used_sessions:[...], confidence, last_*}`.
    It is GLOBAL (mixes code + personal notes) — evaluate ONLY names present in this wiki (the notes globbed in Step 1, i.e. the compiled corpus `index_compiled.json`).
-2. While reading each note in Step 1, capture whether it has a `## Применялось` section and how many
+2. While reading each note in Step 1, capture whether it has a `## Applied` section and how many
    dated entries it holds (written by `recall_evidence.py` each time the note demonstrably helped).
 
 Then classify:
 
-- **Proven load-bearing** — note has `## Применялось` entries OR `confidence > 0`. This note has
+- **Proven load-bearing** — note has `## Applied` entries OR `confidence > 0`. This note has
   paid its rent. **It OVERRIDES the 2.1 stale flag**: usefulness is not freshness — do NOT flag a
   proven-used note as stale just because `updated:` is old. Report only as context, never as an issue.
 - **Recall-noise** — in recall_stats with `len(fired_sessions) >= 4` AND `used_sessions` empty
@@ -87,9 +87,9 @@ law: when a fact changes, every echo must change with it.
 
 ### 2.9 Rot-counts (never hardcode a count that rots)
 
-- Scan note bodies for hardcoded counts in prose that silently go stale: `N команд`, `N провайдеров`,
-  `N моделей`, `N скиллов`, `N агентов`, `N хуков` and English equivalents.
-- Flag: `[ROT-COUNT] file.md:line — hardcoded "18 команд" rots; state it as "the commands in <list>" and let the list be the count`.
+- Scan note bodies for hardcoded counts in prose that silently go stale: `N commands`, `N providers`,
+  `N models`, `N skills`, `N agents`, `N hooks` and their equivalents in other languages.
+- Flag: `[ROT-COUNT] file.md:line - hardcoded "18 commands" rots; state it as "the commands in <list>" and let the list be the count`.
 - Frontmatter counts and version numbers are exempt; this targets narrative prose only.
 
 ## Step 3 — Suggest improvements
@@ -143,16 +143,16 @@ Suggested actions: [numbered list]
 
 Ask two separate questions:
 
-1. *«Применить quick fixes автоматически?»* (yes/no/select)
+1. *"Apply the quick fixes automatically?"* (yes/no/select)
    - Auto-fixable: missing frontmatter `tags` (propose from the note's content), empty `related:` fields, missing frontmatter fields with safe defaults (e.g. `sources: []`).
    - On `select` — show the list, user picks by number.
 
-2. *«Превратить находки в research-задачи?»* (yes/no/select)
+2. *"Turn the findings into research tasks?"* (yes/no/select)
    - Candidates: every `[STALE]` page + every `[GAP]` topic.
    - For each picked item — invoke `/research` with a pre-built prompt:
      ```
      Research topic: <page name or gap topic>
-     Goal: <для STALE: re-verify facts and bump confidence / для GAP: create a new wiki page>
+     Goal: <for STALE: re-verify the facts and bump confidence / for GAP: create a new page>
      Context: existing page at <path>, last updated <date>, known gaps: <from lint>
      ```
    - Batch-mode: if user picks multiple — queue them, run sequentially, report results together.

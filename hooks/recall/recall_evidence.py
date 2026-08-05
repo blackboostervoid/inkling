@@ -2,7 +2,7 @@
 # @role: Stop-hook - harvest the discarded "why" context of [RECALL-USED] markers into an inline evidence log inside each wiki note (both corpora)
 # @deps: (stdlib only - zero third-party, runs on Stop across machines via py)
 # @used-by: Stop hook in settings.json
-# @doc: qualitative twin of recall_feedback.py - that fold keeps the COUNT (recall_stats.json), this one keeps the CONTEXT (note-inline "## Применялось" log)
+# @doc: qualitative twin of recall_feedback.py - that fold keeps the COUNT (recall_stats.json), this one keeps the CONTEXT (note-inline "## Applied" log)
 """
 recall_evidence.py — evidence-by-backlink for the wiki, reverse-harvested from obsidian-mind.
 
@@ -15,9 +15,9 @@ This hook is the second consumer of the same [RECALL-USED] markers. It captures 
 keeps only markers whose note actually FIRED this session (the same intersection guard
 recall_feedback uses — it kills the literal "[RECALL-USED] <name>" placeholder in the injected
 instruction), resolves each name to its note file via the compiled corpus, and appends one dated
-line to a "## Применялось" section at the end of that note:
+line to an "## Applied" section at the end of that note:
 
-    - 2026-07-23 · a0156c67 · помогло выбрать registry вместо if-elif в a speech pipeline adapter
+    - 2026-07-23 - a0156c67 - settled the registry-versus-if-elif call in the adapter
 
 So browsing a note in Obsidian shows its lived track record, not just its curated summary.
 
@@ -48,7 +48,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 DEFAULT_WIKI_PATH = ""  # no default: set CLAUDE_WIKI_PATH to the vault root
-EVIDENCE_HEADER = "## Применялось"
+EVIDENCE_HEADER = "## Applied"
 MAX_EVIDENCE_LINES = 30  # bound growth: a hot note keeps its newest N applications
 
 # [RECALL-USED] <name> — <why>. The dash separator is REQUIRED to be whitespace-flanked so a

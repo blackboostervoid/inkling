@@ -1,6 +1,6 @@
 ---
 name: research
-description: Research a lib / API / model to decide whether and how to build it here. Vault-first: checks the Obsidian wiki before the web, honours the rejected-list, and writes findings back so the question is never paid for twice. Three effort levels, asked up front. Triggers on - "исследуй", "как работает [API/модель]", "найди информацию", "можно ли добавить".
+description: Research a lib / API / model to decide whether and how to build it here. Vault-first: checks the Obsidian wiki before the web, honours the rejected-list, and writes findings back so the question is never paid for twice. Three effort levels, asked up front. Triggers on - "research X", "how does [API/model] work", "find information on", "can we add".
 context: fork
 allowed-tools: Read, Write, Edit, Agent, AskUserQuestion
 ---
@@ -28,13 +28,13 @@ See `references/project-config.md` for the project-local `research.yaml` + `rese
 
 **Never sit silently waiting for the user to volunteer a level.** Resolve it, in this order:
 
-1. **The user already said it in their prompt** — "быстро глянь", "по-быстрому", "на максималках", "копай глубоко", "low/med/max" — take it and skip the question. Say which level you took.
-2. **Otherwise, ask with `AskUserQuestion`.** One question, three options, with the project default from Step 0 listed first and marked `(по умолчанию проекта)`. If no project default exists, put `med` first and mark it `(рекомендую)`.
+1. **The user already said it in their prompt** — "quick look", "just glance at it", "go all in", "dig deep", "low/med/max" — take it and skip the question. Say which level you took.
+2. **Otherwise, ask with `AskUserQuestion`.** One question, three options, with the project default from Step 0 listed first and marked `(project default)`. If no project default exists, put `med` first and mark it `(recommended)`.
 
    Option labels and descriptions:
-   - **low — 1-2 источника.** Быстрый ответ. Часто целиком из вики, без веба. Противоречия не проверяются, контр-поиска нет.
-   - **med — 3-5 источников.** Дефолт. Один слот жёстко зарезервирован под контр-поиск, есть раздел расхождений и отметка консенсуса.
-   - **max — 6-10 источников + добор.** Первичка вперёд, агент занимает сторону, отдельный де-анкоренный критик ищет чем это опровергнуть, один точечный добор по его наводке.
+   - **low - 1-2 sources.** A quick answer, often entirely from the vault with no web at all. Contradictions are not checked and there is no counter-search.
+   - **med - 3-5 sources.** The default. One slot is reserved for a counter-search, and the report carries a disagreements section and a consensus note.
+   - **max - 6-10 sources plus a follow-up fetch.** Primary sources first, the agent takes a position, a separate de-anchored critic hunts for what would refute it, and one targeted fetch chases the critic's best lead.
 
 3. **If `AskUserQuestion` is unavailable in this context**, ask in one plain message listing the same three options and their costs, then wait. Never proceed on a guess, and never proceed silently.
 
@@ -54,7 +54,7 @@ date: <today>
 reason: <reason>
 ```
 
-Create the file with header if it does not exist. Report: *«Записано в rejected list.»* Done.
+Create the file with header if it does not exist. Report: *"Recorded in the rejected list."* Done.
 
 ---
 
@@ -84,7 +84,7 @@ Research effort: [low | med | max from Step 0.5]
 Rejected list (project):
 [full content of research-rejected.md OR "none"]
 
-Return: structured findings per your report shape — level + source tiers, суть,
+Return: structured findings per your report shape — level + source tiers, the gist,
 parameters, contradictions, consensus, limitations, falsifier, recommendation.
 If topic matches rejected list — early-exit per protocol, do not research.
 If zero usable sources — report that and save nothing. Do not answer from memory.
@@ -109,7 +109,7 @@ Question (verbatim): [the user's original words]
 Domain: code
 Finding: [the conclusion + recommendation from the researcher's report]
 Sources: [the source list with tiers and breadcrumbs, verbatim from the report]
-Contradictions: [what the researcher reported about disagreement, or "не проверялись"]
+Contradictions: [what the researcher reported about disagreement, or "not checked"]
 
 Return: verdict, ranked overturn leads, best lead, and what class of source
 the corpus is missing. You cannot write anywhere — leads only.
@@ -119,7 +119,7 @@ the corpus is missing. You cannot write anywhere — leads only.
 
 ## Step 2.6 — Targeted overturn fetch (`max` ONLY, conditional)
 
-- **Critic verdict `держится`** → skip the fetch. Do not spend a source confirming what already holds. Pass the verdict to the researcher to record in the note and move on.
+- **Critic verdict `holds`** → skip the fetch. Do not spend a source confirming what already holds. Pass the verdict to the researcher to record in the note and move on.
 - **Any other verdict** → re-invoke `researcher` with exactly one instruction: chase the critic's best lead, spend **one** fetch, then revise or confirm the saved note and its `falsifier`.
 
 ```
@@ -178,52 +178,52 @@ user for permission to save, never defer it to "a separate step".
   → zero sources), and the presence gate at every rung: a value that never appeared in fetched text
   does not enter the note, however plausible it reads.
 - The only valid no-save outcome is a zero-source result.
-- «Куда легло в вики» in the final report is filled from what was ACTUALLY written to disk,
+- "Where it landed in the vault" in the final report is filled from what was ACTUALLY written to disk,
   never from intention.
 
 ```
-## Что нашёл
+## What I found
 
-**Уровень:** [low | med | max] — [N] источников ([X primary, Y secondary, Z anecdotal])
-**Источник:** [URL / База знаний / project rejected list]
-**Суть:** [2-4 предложения]
+**Level:** [low | med | max] - [N] sources ([X primary, Y secondary, Z anecdotal])
+**Source:** [URL / knowledge base / project rejected list]
+**Gist:** [2-4 sentences]
 
-**Параметры / настройки:**
-- `param` — описание, допустимые значения
+**Parameters and settings:**
+- `param` - what it does, accepted values
 
-**Где источники расходятся:**
-- [конкретные расхождения; ИЛИ «расхождений не нашёл (N источников)»; ИЛИ «не проверял — один источник»]
+**Where the sources disagree:**
+- [the concrete disagreements; OR "no disagreement found (N sources)"; OR "not checked - single source"]
 
-**Консенсус:** [что подтверждают ≥3 независимых источника — опустить на low]
+**Consensus:** [what 3 or more independent sources confirm - omit at low]
 
-**Ограничения:**
-- [список]
+**Limitations:**
+- [list]
 
-**Что изменит вывод:** [конкретное проверяемое условие]
+**What would change the conclusion:** [a concrete, checkable condition]
 
-**Проверка на прочность:** [только max — вердикт критика + что он не нашёл в корпусе; и потратили ли добор]
+**Stress test:** [max only - the critic's verdict, what it found missing from the corpus, and whether the follow-up fetch was spent]
 
-**Как вписывается в проект:** [только med/max]
-- Затронет: [файлы/модули]
+**How it fits this project:** [med and max only]
+- Affects: [files and modules]
 - Blast radius: [low/medium/high]
-- Конфликты: [есть / нет]
+- Conflicts: [yes / no]
 
-**Куда легло в вики:** [folder/note.md — создано / обновлено]
+**Where it landed in the vault:** [folder/note.md - created / updated]
 
-**Рекомендация:** [стоит делать / как подходить]
+**Recommendation:** [worth doing or not, and how to approach it]
 ```
 
-Sections that do not apply at the chosen level are omitted, not filled with "н/д".
+Sections that do not apply at the chosen level are omitted, not filled with "n/a".
 
-After findings → ask: *"Хочешь составить план реализации?"*
+After findings, ask: *"Want an implementation plan?"*
 
 ---
 
 ## Step 6 — Post-research rejection capture
 
-If user responds to findings with clear rejection ("не подходит", "не берём", "bad fit", "отклоняем"):
+If user responds to findings with clear rejection ("does not fit", "we will not use it", "bad fit", "rejected"):
 
-Ask: *«Записать в rejected list для этого проекта? Одна строка причины?»*
+Ask: *"Record this in the project rejected list? One line for the reason?"*
 
 On yes + reason → append to `<cwd>/.claude/research-rejected.md`:
 
@@ -233,7 +233,7 @@ date: <today>
 reason: <user's reason>
 ```
 
-Create file with header if missing. Confirm: *«Записано. Следующий `/research` на эту тему сделает early-exit.»*
+Create file with header if missing. Confirm: *"Recorded. The next `/research` on this topic will exit early."*
 
 On no → proceed normally, no file touched.
 

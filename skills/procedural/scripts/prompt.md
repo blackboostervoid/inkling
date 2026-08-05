@@ -51,7 +51,7 @@ The source artifacts mix Russian and English freely, and so do real project term
 Treat domain vocabulary literally, in whatever language it appears — do NOT translate,
 normalize, or unify it. A future scanner matches these words as substrings against raw
 session text, so the surface form must survive intact.
-Example terms to preserve as-is: "TTS-провайдер", "registry", "реестр", "pipeline",
+Example terms to preserve as-is: "TTS provider", "registry", "adapter", "pipeline",
 "SubOrchestrator", "code_index". If a term appears in both languages, keep both.
 </keywords>
 
@@ -99,7 +99,7 @@ Output the JSON object only — no prose before or after.
 <example>
 <description>Clean procedural input — extracted as one recipe, with an anti-pattern the session revealed.</description>
 <input>
-Key decisions: settled the flow for adding a TTS-провайдер. New provider = new adapter
+Key decisions: settled the flow for adding a TTS provider. New provider = new adapter
 file implementing TTSInterface, then one line in the registry mapping its key to the
 class. Factory resolves by key at the edge; no orchestrator edits needed. First attempt
 added a direct import in the orchestrator — broke OCP, reverted to the registry.
@@ -117,7 +117,7 @@ added a direct import in the orchestrator — broke OCP, reverted to the registr
       ],
       "why": "Keeping selection in a registry + factory means adding a provider is one new file plus one registry line, never edits across orchestrators (OCP).",
       "anti_pattern": "Adding a direct import of the provider in the orchestrator — breaks OCP and forces an orchestrator edit per provider.",
-      "keywords": ["TTS-провайдер", "registry", "реестр", "TTSInterface", "factory", "adapter"]
+      "keywords": ["TTS provider", "registry", "TTSInterface", "factory", "adapter"]
     }
   ]
 }
@@ -141,8 +141,8 @@ must never import each other — data flows only through the MainOrchestrator.
 Key decisions: we use Voyage for embeddings now. Also locked the procedure for wiring a
 new SubOrchestrator into the pipeline: create the SubOrc module under its branch, register
 it in the MainOrchestrator constructor, and route its data path through MainOrc only —
-never let it talk to a sibling SubOrc. Side note: SubOrchestrators не импортят друг друга,
-это инвариант.
+never let it talk to a sibling SubOrc. Side note: SubOrchestrators never import one another,
+that is an invariant.
 </input>
 <output>
 {
@@ -156,7 +156,7 @@ never let it talk to a sibling SubOrc. Side note: SubOrchestrators не импо
         "Route its data path through the MainOrchestrator only"
       ],
       "why": "Routing every SubOrc through MainOrc keeps the data path canonical (Module -> SubOrc -> MainOrc -> SubOrc), which is what makes the invariant against sibling imports hold by construction.",
-      "keywords": ["SubOrchestrator", "SubOrc", "pipeline", "MainOrchestrator", "реестр"]
+      "keywords": ["SubOrchestrator", "SubOrc", "pipeline", "MainOrchestrator", "registry"]
     }
   ]
 }

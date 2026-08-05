@@ -47,14 +47,14 @@ full YAML engine. It accepts these shapes and silently returns empty for anythin
 **`tags` — required.** Either an inline list or a block list:
 
 ```yaml
-tags: [yaml, config, gotcha, парсинг]
+tags: [yaml, config, gotcha, parsing]
 ```
 
 ```yaml
 tags:
   - yaml
   - config
-  - парсинг
+  - parsing
 ```
 
 **`summary` — required in practice.** A note without one is in the corpus but competes with an
@@ -79,25 +79,43 @@ summary: >
 tool / concept / discovery), `confidence`, `sources`, `updated`, `related`. Keep them consistent
 because the vault health check reads them; the retrieval rail does not.
 
-## 4. Tags — the routing surface
+## 4. Language
+
+**Write notes in the language you actually talk to your agent in. If that is more than one
+language, pick the one you use most, and stay with it. The default is English.**
+
+This is not a style preference, it is how matching works. A tag fires when it appears as a
+substring of your prompt, so a tag written in a language you never type is a tag that never
+matches. A vault of English notes serving prompts asked in Portuguese retrieves nothing, and the
+silence looks exactly like an empty vault.
+
+Two consequences worth knowing:
+
+- **Be consistent within a vault.** Half the notes tagged in one language and half in another means
+  half your corpus is unreachable on any given prompt. If you genuinely work in two languages, tag
+  the important notes in both rather than splitting the vault down the middle.
+- **A language with rich inflection needs its stemmer.** Matching is literal, so a tag in the
+  dictionary form misses the same word in another case or number. The scanner ships an optional
+  stemmer for exactly this, enabled per corpus with `"stem": true` in `corpora.json`. English does
+  not need it. Turn it on if your language declines its nouns.
+
+## 5. Tags — the routing surface
 
 A tag matches when it appears **as a substring of the normalized prompt**. That single sentence
 determines how tags should be written.
 
-- **Write the words a person would actually type.** `парсинг` matches a Russian question about
-  parsing; `parsing-subsystem` matches nothing anybody types.
+- **Write the words a person would actually type.** `parsing` matches a question about parsing;
+  `parsing-subsystem-v2` matches nothing anybody types.
 - **A multi-word tag matches as a whole phrase**, not word by word. `prompt engineering` fires only
-  on that exact sequence, whereas two tags `промт` and `инженерия` each fire on their own. Prefer
+  on that exact sequence, whereas two tags `prompt` and `engineering` each fire on their own. Prefer
   several short tags over one long one.
-- **Both languages, when both are used.** Our vault carries Russian and English tags side by side
-  because prompts arrive in both. Choose per vault, then be consistent.
-- Ten to fifteen tags per note is normal here. Tags are cheap; a missed recall is not.
+- Ten to fifteen tags per note is normal. Tags are cheap; a missed recall is not.
 
 Alongside the substring ranker runs BM25 over the whole retrieval document, and the two are fused by
 reciprocal rank. A note therefore has two ways to be found: a tag the prompt names outright, or
 enough shared vocabulary in name and summary. Neither alone has to carry it.
 
-## 5. Summary — written for a stranger deciding in one second
+## 6. Summary — written for a stranger deciding in one second
 
 The summary does two jobs at once, and both of them are load-bearing.
 
@@ -117,7 +135,7 @@ Therefore:
   that one line was enough to misroute a recommendation. When the note's status changes, the summary
   is the part that must change with it.
 
-## 6. `raw/` — the staging area
+## 7. `raw/` — the staging area
 
 `raw/` holds unprocessed material: a dump from a conversation, an article, the concept notes that
 `book-harvest` extracts from a book. It is excluded from the corpus by design, so nothing there
@@ -128,7 +146,7 @@ creates a new one in the right topical folder, and writes the frontmatter this c
 The rule the pipeline depends on: **material enters as raw and leaves as a note; nothing is authored
 straight into the corpus by a machine without passing that step.**
 
-## 7. Layout
+## 8. Layout
 
 ```
 <vault-root>/
@@ -144,14 +162,14 @@ straight into the corpus by a machine without passing that step.**
 Folders are for humans; retrieval does not care which one a note sits in. Choose few and obvious
 ones, and keep a note's folder stable — the path is how the reader's link survives.
 
-## 8. Multi-corpus, for a second vault
+## 9. Multi-corpus, for a second vault
 
 A second, separate vault (a personal one, a client's) registers in `corpora.json` as a namespace with
 its own path, and compiles to its own index. Namespaces use an `INDEX.md` membership list instead of
 globbing, which is what lets a corpus include notes living outside its own root. The default corpus
 never uses `INDEX.md` — for it, frontmatter is the only source.
 
-## 9. Tuning what surfaces — the lens
+## 10. Tuning what surfaces — the lens
 
 Per-project tuning lives in a lens file, and it does three things: `bridge` declares a cluster of
 terms that mean the same thing, so any one of them present in the prompt pulls in all the others as
@@ -159,7 +177,7 @@ virtual tags; `suppress` drops entries that are permanent noise for this project
 tag up. Ship an empty lens and one worked example — a lens is how a vault stops repeating a match
 nobody wants without deleting a note somebody else needs.
 
-## 10. The five checks before a note is done
+## 11. The five checks before a note is done
 
 1. Does it have `tags`? Without them it is not in the corpus at all.
 2. Would the tags appear, literally, in a question someone would ask?
