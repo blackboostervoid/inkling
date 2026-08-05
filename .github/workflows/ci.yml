@@ -1,0 +1,44 @@
+name: ci
+
+# Three questions, in the order they can fail:
+#   does the scanner still behave      -> go test
+#   would a clone contain what the      -> check_shipped
+#   install contract promises
+#   does a fresh install actually work  -> acceptance, in a throwaway sandbox
+#
+# The middle one exists because the other two can both pass on a repository that is
+# missing a file: they read from disk, and disk is not what a stranger clones.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Scanner unit tests
+        working-directory: hooks/recall
+        run: |
+          gofmt -l . | tee /tmp/unformatted
+          test ! -s /tmp/unformatted || (echo "::error::gofmt found unformatted files" && exit 1)
+          go vet ./...
+          go test ./...
+
+      - name: Shipped tree matches the install contract
+        run: python3 tests/check_shipped.py
+
+      - name: Acceptance run in a throwaway sandbox
+        run: python3 tests/acceptance.py

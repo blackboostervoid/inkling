@@ -169,6 +169,18 @@ The full format is in [VAULT_CONTRACT.md](VAULT_CONTRACT.md). The recipe format 
 
 It does not search note bodies. It does not write notes by itself. It does not make your agent faster. It does one thing: the note you need shows up when you need it.
 
+## Know this before you install
+
+Four honest limits. None of them is a bug, and all four decide whether this fits you.
+
+**Retrieval rests on your discipline, and a bad note fails silently.** Ranking sees the filename, the tags and the summary. A note whose insight lives in its body is simply never found, and that looks exactly like an empty vault rather than like an error. Two things push back on it: the compiler prints a warning naming every tagged note with no summary, and `/lint` audits the vault for the rest. Neither can write a good summary for you. If you will not keep the frontmatter honest, this system quietly does nothing.
+
+**One vault, one language.** A tag matches by appearing in your prompt, so a vault tagged in a language you do not type retrieves nothing. Mixing two languages halves your reachable corpus on any given prompt; tag the important notes in both if you truly work in two. For a language that declines its nouns there is an opt-in stemmer, and its quality is not measured, only exercised by unit tests. Treat it as a mitigation, not a solution.
+
+**It installs globally and runs on every prompt.** The hooks live in `~/.claude`, not in one project, and the scanners execute on each message you send. Measured cost on this repository: **about 500 tokens per turn** for the skill descriptions that stay resident, plus **about 200-250 tokens on a prompt where recall actually fires** (the match cap is two). A prompt that matches nothing adds nothing. The scanners are Go binaries built from the source in `hooks/`, and reading that source before you install is a reasonable thing to want; it is about 1,000 lines and it is the whole rail.
+
+**This is one person's working setup, published.** One author, no release cadence, no support promise. What it does have is a CI run on every push and an acceptance suite you can run yourself: `python3 tests/acceptance.py` builds a throwaway install and proves the rails work, and `python3 tests/check_shipped.py` proves the repository actually contains what the install contract promises. That second check exists because it caught a real failure: a `.gitignore` line inherited from a private repo excluded the researcher's protocol file, every disk-reading test passed, and the published install could not have worked.
+
 ## License
 
 MIT.

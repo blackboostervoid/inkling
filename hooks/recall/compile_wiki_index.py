@@ -190,6 +190,7 @@ def enumerate_from_frontmatter(wiki_root: Path) -> List[Dict]:
     dirs are excluded for free. This is why frontmatter had to become the single source (Phase 0)
     before this could replace the INDEX parser without losing tags."""
     entries: List[Dict] = []
+    silent: List[str] = []
     for note in sorted(wiki_root.rglob("*.md")):
         rel = note.relative_to(wiki_root)
         if any(part in _ENUM_EXCLUDE_DIRS for part in rel.parts):
@@ -201,12 +202,27 @@ def enumerate_from_frontmatter(wiki_root: Path) -> List[Dict]:
         tags = extract_tags(text)
         if not tags:
             continue
+        summary = extract_summary(text)
+        if not summary:
+            silent.append(rel.as_posix())
         entries.append({
             "name": note.stem,
             "path": rel.as_posix(),
             "tags": tags,
-            "summary": extract_summary(text),
+            "summary": summary,
         })
+
+    # A tagged note without a summary is IN the corpus and effectively mute: half its
+    # ranked document is empty, and the agent sees "(no summary)" where the reason to
+    # open it should be. That is a silent failure with no error attached to it, so the
+    # compiler is where it gets said out loud.
+    if silent:
+        shown = ", ".join(silent[:5]) + (f" (+{len(silent) - 5} more)" if len(silent) > 5 else "")
+        print(
+            f"[compile_wiki_index] WARNING: {len(silent)} tagged note(s) have no summary and "
+            f"rank against an empty document: {shown}",
+            file=sys.stderr,
+        )
     return entries
 
 
