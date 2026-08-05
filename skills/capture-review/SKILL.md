@@ -29,8 +29,13 @@ Group the survivors by their suggested home:
 |---|---|---|
 | `decision` | project `auto_memory/<project>/` decision note, OR the code wiki if it is a reusable technical decision | write a memory file (frontmatter `type: decision`... follow the memory format) or hand to `/compile` |
 | `gotcha` | `auto_memory/<project>/` (a gotcha/feedback note) | memory file with **Why** + **How to apply** |
-| `pattern` | code wiki (`$CLAUDE_WIKI_PATH/`) as a `pattern` page | stage into `raw/` and run `/compile`, or write the page directly |
+| `pattern` | code wiki (`$CLAUDE_WIKI_PATH/`) as a `pattern` page | stage into `raw/` and run `/compile` — that is the only door into the corpus, and it is what supplies the frontmatter |
 | `rejected` | `<cwd>/.claude/research-rejected.md` if it exists, else a `rejected` memory note | append the approach + the reason it was ruled out |
+
+**Never hand-write a page straight into the vault.** `/compile` is what gives a note its `tags`
+and its `summary`, and it checks that the two share at least two keywords. A page written around it
+lands in the corpus ranking against an empty document: present, findable by nothing, and silent
+about it. Staging into `raw/` costs one extra step and closes that hole.
 
 ## Step 3 — Present + confirm
 
