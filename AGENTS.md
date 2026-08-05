@@ -23,6 +23,7 @@ called `CONFIG` from here on.
 | `skills/research/` | `CONFIG/skills/research/` |
 | `skills/book-harvest/` | `CONFIG/skills/book-harvest/` |
 | `skills/capture-review/` | `CONFIG/skills/capture-review/` |
+| `skills/crystallize/` | `CONFIG/skills/crystallize/` |
 | `skills/procedural/` | `CONFIG/skills/procedural/` |
 | `agents/researcher.md` | `CONFIG/agents/researcher.md` |
 | `agents/research-critic.md` | `CONFIG/agents/research-critic.md` |
@@ -113,6 +114,7 @@ The hooks run themselves. The skills are invoked by name in a session:
 | `/research <topic>` | Vault first, then the web, then writes the finding back as a note |
 | `/book-harvest <path>` | Cheap scouts read a book in units; concepts land in `raw/` |
 | `/capture-review` | Promotes or drops the candidates staged from a session |
+| `/crystallize` | Asks whether recent notes want to become a capability, and proposes how |
 | `/procedural batch` | Distils recurring action sequences into recipe candidates |
 
 Verify the install by running the acceptance suite, which builds a throwaway sandbox and touches

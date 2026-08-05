@@ -251,9 +251,10 @@ Log appended. (No INDEX — notes register via frontmatter; recall corpus rebuil
   cue to run the Correction-sweep (Step 8) so the copies never diverge.
 - **Mark inference.** A claim in the body not traceable to an entry in `sources:` is tagged
   `(unverified)` inline. Confidence rests on provenance — an unmarked guess reads as a fact and rots as one.
-- **Never hardcode a count that rots.** Do not write "18 commands", "3 providers", "5 models" as
-  prose. State it as "the commands listed in <X>" and let the list be the count. A frozen number is a
-  future lie. (Audited by `/lint` 2.9 `[ROT-COUNT]`.)
+- **Let the list be the count.** Write "the commands listed in <X>" rather than "18 commands",
+  so the number is derived at reading time and cannot drift from the thing it counts. A frozen
+  number in prose is a future lie, and it rots silently because nothing recounts it.
+  (Audited by `/lint` 2.9 `[ROT-COUNT]`.)
 - **Atomicity — one concept per note (a RETRIEVAL-quality rule, not filing taste).** Each note covers
   ONE entity/concept — one API, one pattern, one tool. Do NOT bundle UNRELATED entities in a single
   note: semantic search embeds each note as one vector, and a note spanning unrelated topics averages
@@ -262,3 +263,15 @@ Log appended. (No INDEX — notes register via frontmatter; recall corpus rebuil
   Gemini API) is correctly a single note — its summary vector stays on-topic however long the body is
   (only name+tags+summary are embedded, not the body). Split only when a note bundles concepts that
   stand alone and would each be searched for separately. The grain is the ENTITY, not the section.
+
+---
+
+## After compiling — the question worth asking once
+
+Notes just landed. Some of what you compiled may be a procedure you keep re-deriving rather than a
+fact you looked up, and a procedure that recurs is a capability you do not have yet.
+
+Offer `/crystallize` in one line, and only offer it. It reads what landed, compares it against the
+skills and agents already installed, and proposes: extend an existing one, write a project recipe,
+or build something new. Its default answer is that a note stays a note, which is why the offer costs
+nothing when there is nothing there.
