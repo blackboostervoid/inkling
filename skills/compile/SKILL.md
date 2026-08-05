@@ -235,7 +235,7 @@ Log appended. (No INDEX — notes register via frontmatter; recall corpus rebuil
 ## Rules
 
 - Talk to the user in the language they write to you in.
-- Wiki page content: English.
+- Wiki page content: the vault working language (VAULT_CONTRACT.md). It is one language per vault, chosen as the one the user actually types in, because a tag in a language nobody types never matches.
 - Batch: process 5–10 files per run when queue is large.
 - **Core immutability is non-negotiable.** When in doubt, classify as content change and ask. Better a wasted approval than a silent rewrite.
 - Never delete information from existing pages without approval — only add, reorder (form-only), or flag conflicts.
