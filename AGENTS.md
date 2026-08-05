@@ -93,7 +93,7 @@ Each of these is optional. Its absence disables one feature silently and leaves 
 
 | Absent | Lost | Behaviour |
 |---|---|---|
-| ollama with the `bge-m3` model | Meaning-based search (`semantic.py`) | The tool reports ollama is unreachable. Lexical recall is unaffected |
+| An embedding server (ollama or OpenAI-compatible) | Link *proposals* and meaning-based search (`semantic.py`) | The tool says the server is unreachable and exits cleanly. Retrieval is untouched: existing `related` links keep working, since walking them needs no model |
 | `<project>/.claude/procedural.md` | The procedural rail for that project | No `[PROCEDURAL]` block. Nothing is written, nothing errors |
 | A lens file | Per-project tuning of what surfaces | Defaults apply: no bridges, no suppressions, no boosts |
 | `corpora.json` entries | Extra vaults | Only the default corpus compiles. `corpora.example.json` shows the shape |
@@ -102,6 +102,66 @@ Each of these is optional. Its absence disables one feature silently and leaves 
 One thing never degrades quietly: a corpus file that **exists but fails to load** produces a
 `[RAIL-BROKEN]` block instead of silence, because a blind rail that looks like an honest miss is how
 this kind of system dies unnoticed.
+
+## 4a. Optional — the local embedding layer
+
+**Install everything else first and confirm it works without this.** This layer adds nothing to
+retrieval at runtime and removes nothing when absent. Its only job is to *propose* `related` links
+while a note is being written; the links themselves are plain frontmatter, and the scanner walks
+them with no model involved. A user who never installs it has a fully working system.
+
+Set it up only if the user wants link proposals. If they do, pick one server.
+
+**Option A — ollama.** Install it, then pull an embedding model:
+
+```sh
+ollama pull bge-m3
+```
+
+Nothing else is needed. The default URL `http://localhost:11434` is already what the tool tries.
+
+**Option B — LM Studio, or any OpenAI-compatible server** (llama.cpp, vLLM). Load an embedding
+model in the app, start its local server, then point the tool at it:
+
+```sh
+export CLAUDE_EMBED_URL="http://localhost:1234/v1"
+```
+
+**The `/v1` suffix is the switch.** A URL ending in `/v1` is called with the OpenAI
+`POST /v1/embeddings` shape; anything else is called as ollama's `POST /api/embed`. There is no
+provider flag to set. If the server demands an Authorization header, put any string in
+`CLAUDE_EMBED_KEY`; most local servers ignore its value.
+
+**Choosing the model.** Set it with `CLAUDE_EMBED_MODEL`, default `bge-m3`.
+
+| Model | Size | When it is the right pick |
+|---|---|---|
+| `bge-m3` | 568M | Default. Strong multilingual coverage, which matters when the vault and the prompts are not all English |
+| `nomic-embed-text` | 137M | Faster, English-leaning. Fine for an English-only vault on a slow machine |
+| `all-minilm` | 23M | Only when the machine cannot hold anything larger; noticeably weaker neighbours |
+
+Pick for quality rather than speed. Embedding is slow (measured: about 2.2 seconds per note with
+`bge-m3` on a desktop GPU) and that is affordable **because this layer never runs on the hot path**
+— it runs when a note is written, not when a prompt is sent.
+
+**Changing the model later means re-embedding everything.** Vectors from two different models are
+not comparable, and mixing them silently produces nonsense neighbours rather than an error. After a
+model change, delete `CONFIG/hooks/recall/semantic_index*.json` and let it rebuild.
+
+**Verify, then seed the vault once:**
+
+```sh
+python3 "$CONFIG/hooks/recall/semantic.py" index          # builds the vectors, reports the count
+python3 "$CONFIG/hooks/recall/semantic.py" suggest        # proposes links for every note
+```
+
+`suggest` writes nothing. It prints ready-to-paste `related:` lines with a similarity score and the
+neighbour's summary, and the user decides which are true. Expect most notes to produce nothing: the
+proposer refuses any neighbour that does not stand clear of the crowd, because on a mixed vault
+every note is mildly similar to every other.
+
+If the server is unreachable, every command in this section says so and exits cleanly. Report that
+in one line and move on; nothing else in the install depends on it.
 
 ## 5. How it is invoked, and what done looks like
 

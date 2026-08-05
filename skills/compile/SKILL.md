@@ -266,6 +266,30 @@ Log appended. (No INDEX — notes register via frontmatter; recall corpus rebuil
 
 ---
 
+## Optional — propose links while the note is fresh
+
+**Skip this whole step if no embedding server is running.** It is an optional layer: without it
+every part of `/compile` works exactly as before, and notes simply carry the links their author
+wrote by hand.
+
+If one is running, the moment after a note is written is the cheapest time to ask what it belongs
+with, because the note is already in front of you:
+
+```bash
+python3 "$CLAUDE_CONFIG_DIR/hooks/recall/semantic.py" suggest --note <note-name>
+```
+
+It prints ready-to-paste `related:` lines with a score and the neighbour's summary, and it writes
+nothing. Read each proposal and keep the ones that are true: a link is an assertion that two notes
+travel together, and the retrieval side walks exactly one of them from the strongest match. A
+neighbour that is merely on a similar topic is not worth a link.
+
+Silence is a valid outcome and the common one. The proposer refuses anything that does not stand
+clear of the crowd, because on a mixed vault every note is mildly similar to every other.
+
+If the command reports the server is unreachable, say so once in one line and carry on. Nothing
+about the compile depends on it.
+
 ## After compiling — the question worth asking once
 
 Notes just landed. Some of what you compiled may be a procedure you keep re-deriving rather than a

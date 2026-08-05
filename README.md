@@ -74,6 +74,8 @@ When the strongest match carries a link, one linked note comes with it, marked s
     words, it is the note that one points to]
 ```
 
+**Writing those links is easier with an optional helper, and the system does not need it.** If you run a local embedding model — ollama or LM Studio, either works — `semantic.py suggest` proposes `related` lines by meaning, with a score, and writes nothing. Without it you write links by hand, and everything else behaves identically. The model is never involved when a prompt is answered: the link was decided when the note was written, and walking it is a dictionary lookup.
+
 That is the answer to the obvious hole in literal matching: the note you need is about the same thing under different words. Only the top match hops, only one note is added, and the hop never chains, because a hop from a weak match multiplies noise instead of fixing it.
 
 ### Something you already did once, in this project

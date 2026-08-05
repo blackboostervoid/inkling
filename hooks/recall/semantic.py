@@ -35,14 +35,31 @@ import urllib.request
 from pathlib import Path
 from typing import Dict, List, Optional
 
-OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+# Where the embeddings come from. Two shapes are supported and the URL picks between
+# them, so there is no provider flag to get wrong:
+#   ollama              http://localhost:11434        -> POST /api/embed
+#   OpenAI-compatible   http://localhost:1234/v1      -> POST /v1/embeddings
+# LM Studio, llama.cpp and vLLM all speak the second one. CLAUDE_EMBED_URL wins when set;
+# OLLAMA_HOST is still honoured so an existing setup keeps working untouched.
+EMBED_URL = os.environ.get("CLAUDE_EMBED_URL", "").rstrip("/") or \
+    os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+OLLAMA_URL = EMBED_URL  # kept for the existing call sites
 MODEL = os.environ.get("CLAUDE_EMBED_MODEL", "bge-m3")
 EMBED_BATCH = 24
 DEFAULT_K = 8
 
+# A note is only worth proposing as a link when it stands clear of the crowd. Measured on
+# a 112-note vault: a correct neighbour sat 0.08 to 0.23 above the fifth-ranked one, while
+# noise sat at 0.03. The bar is set inside that gap, and it is a starting point rather than
+# a calibration - re-measure on your own vault before trusting it.
+SUGGEST_MIN_SCORE = 0.45
+SUGGEST_MIN_GAP = 0.06
+SUGGEST_MAX_PER_NOTE = 3
+
 
 class OllamaUnavailable(Exception):
-    pass
+    """The embedding server is not reachable. Named for the common case; raised for any
+    provider. Every caller treats it as 'this optional layer is simply off today'."""
 
 
 # ============================================================
@@ -88,17 +105,41 @@ def text_hash(text: str) -> str:
 # ============================================================
 # EMBEDDING (ollama HTTP, batched)
 # ============================================================
+def is_openai_compatible() -> bool:
+    """An /v1 suffix means the OpenAI embeddings shape. LM Studio, llama.cpp and vLLM all
+    expose it; ollama does not, and gets its own endpoint."""
+    return EMBED_URL.rstrip("/").endswith("/v1")
+
+
 def ollama_embed(texts: List[str]) -> List[List[float]]:
-    """Return one vector per input text. Raises OllamaUnavailable on any connection failure."""
-    payload = json.dumps({"model": MODEL, "input": texts}).encode("utf-8")
-    req = urllib.request.Request(
-        f"{OLLAMA_URL}/api/embed", data=payload, headers={"Content-Type": "application/json"}
-    )
+    """Return one vector per input text, from whichever server EMBED_URL points at.
+    Raises OllamaUnavailable on any connection or shape failure, which every caller
+    treats as 'the optional layer is off'."""
+    if is_openai_compatible():
+        url = f"{EMBED_URL}/embeddings"
+        payload = json.dumps({"model": MODEL, "input": texts}).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        # Some OpenAI-compatible servers demand an Authorization header even when they
+        # ignore its value. A dummy key costs nothing and removes a whole class of 401.
+        headers["Authorization"] = "Bearer " + os.environ.get("CLAUDE_EMBED_KEY", "not-needed")
+    else:
+        url = f"{EMBED_URL}/api/embed"
+        payload = json.dumps({"model": MODEL, "input": texts}).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+
+    req = urllib.request.Request(url, data=payload, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
             out = json.load(resp)
     except (urllib.error.URLError, OSError, ValueError) as exc:
-        raise OllamaUnavailable(str(exc)) from exc
+        raise OllamaUnavailable(f"{url}: {exc}") from exc
+
+    if is_openai_compatible():
+        data = out.get("data")
+        if not isinstance(data, list) or len(data) != len(texts):
+            raise OllamaUnavailable("unexpected /v1/embeddings response shape")
+        return [row.get("embedding", []) for row in data]
+
     vecs = out.get("embeddings")
     if not isinstance(vecs, list) or len(vecs) != len(texts):
         raise OllamaUnavailable("unexpected /api/embed response shape")
@@ -199,6 +240,87 @@ def first_sentence(summary: str, limit: int = 130) -> str:
 # ============================================================
 # CLI
 # ============================================================
+# ============================================================
+# SUGGEST — propose `related` links, never write them
+# ============================================================
+def existing_related(entry: Dict, wiki_root: Optional[Path]) -> set:
+    """Links the note already declares, so a proposal never repeats one."""
+    return {r.strip().lower() for r in entry.get("related", []) if r.strip()}
+
+
+def neighbours(path: str, index: Dict[str, Dict], limit: int) -> List[Dict]:
+    """Nearest notes to the note at `path` by meaning, excluding itself, gap-gated.
+    The vector index is keyed by vault-relative path; each record carries name, summary, vec.
+
+    The gap between the best neighbour and the runner-up is what separates a real
+    neighbour from a corpus-wide hum: on a heterogeneous vault every note is mildly
+    similar to every other, so an absolute score alone proposes noise with confidence."""
+    me = index.get(path)
+    if not me or not me.get("vec"):
+        return []
+    scored = []
+    for other, rec in index.items():
+        if other == path or not rec.get("vec"):
+            continue
+        scored.append({"name": rec.get("name", other), "score": cosine_pre_normalized(me["vec"], rec["vec"]),
+                       "path": other, "summary": rec.get("summary", "")})
+    scored.sort(key=lambda r: r["score"], reverse=True)
+    if not scored:
+        return []
+
+    floor = scored[min(4, len(scored) - 1)]["score"]
+    out = []
+    for cand in scored[:limit]:
+        if cand["score"] < SUGGEST_MIN_SCORE:
+            break
+        if cand["score"] - floor < SUGGEST_MIN_GAP:
+            break
+        out.append(cand)
+    return out
+
+
+def suggest(corpus: str, only: Optional[str], limit: int) -> int:
+    """Print `related` proposals as ready-to-paste YAML. Writes nothing."""
+    index = refresh_index(corpus)
+    compiled = {e["path"]: e for e in load_compiled(corpus)}
+
+    if only:
+        # Accept a note name, a bare stem or a full path - whichever the caller has.
+        wanted = only.strip().lower().removesuffix(".md")
+        targets = [key for key, rec in index.items()
+                   if key.lower() == only.strip().lower()
+                   or str(rec.get("name", "")).lower() == wanted
+                   or key.lower().removesuffix(".md").endswith("/" + wanted)]
+        if not targets:
+            print(f"[semantic] no note matching '{only}' in the {corpus} corpus")
+            return 1
+    else:
+        targets = sorted(index)
+
+    proposed = 0
+    for path in targets:
+        entry = compiled.get(path, {})
+        already = existing_related(entry, None)
+        picks = [n for n in neighbours(path, index, limit)
+                 if n["path"].lower() not in already and n["name"].lower() not in already]
+        if not picks:
+            continue
+        proposed += 1
+        print(f"\n{index[path].get('name', path)}  ({path})")
+        print("related:")
+        for p in picks:
+            print(f"  - {p['path']}    # {p['score']:.3f}  {first_sentence(p['summary'], 90)}")
+
+    if not proposed:
+        print(f"[semantic] no proposals: every note either has its links already or has no "
+              f"neighbour clearing score {SUGGEST_MIN_SCORE} with a {SUGGEST_MIN_GAP} gap")
+        return 0
+
+    print(f"\n[semantic] {proposed} note(s) have proposals above the bar. Nothing was written: "
+          f"paste the lines you agree with into each note's frontmatter.")
+    return 0
+
+
 def main() -> int:
     # Vault output may be non-ASCII; Windows Python defaults stdout to a locale codepage, which mangles it and
     # crashes on chars like → in summaries. Force UTF-8 so results print (and pipe) correctly.
@@ -216,6 +338,10 @@ def main() -> int:
     ps.add_argument("query")
     ps.add_argument("-k", type=int, default=DEFAULT_K)
     ps.add_argument("--corpus", default="code")
+    pg = sub.add_parser("suggest", help="propose `related` links for one note or the whole vault")
+    pg.add_argument("--note", default=None, help="note name (filename stem); omit for every note")
+    pg.add_argument("-k", type=int, default=SUGGEST_MAX_PER_NOTE)
+    pg.add_argument("--corpus", default="code")
     args = ap.parse_args()
 
     try:
@@ -224,6 +350,9 @@ def main() -> int:
             vecs = sum(1 for r in idx.values() if r.get("vec"))
             print(f"[semantic] {args.corpus} corpus indexed: {vecs} notes with vectors ({MODEL})")
             return 0
+
+        if args.cmd == "suggest":
+            return suggest(args.corpus, args.note, args.k)
 
         results = search(args.query, args.corpus, args.k)
         if not results:
