@@ -184,6 +184,41 @@ every note is mildly similar to every other.
 If the server is unreachable, every command in this section says so and exits cleanly. Report that
 in one line and move on; nothing else in the install depends on it.
 
+## 4b. Optional — the MCP server
+
+Depends on §4a. Skip it if the user did not install the embedding layer; search is the reason it
+exists.
+
+The recall hook is a **push** rail: it fires on every prompt and costs almost nothing, which is why
+it must stay cheap — so the expensive half of §4a lives off the hot path, as a command somebody has
+to remember to type. A tool carries its own description in the protocol instead, so the model sees
+it every turn with no one remembering anything. That, not access from other clients, is what the
+server is for. It does not replace the hook; the two rails are complements.
+
+Nothing is copied into `CONFIG`. It is built once and run from the repository:
+
+```sh
+cd mcp
+npm install
+npm run build
+```
+
+Register it with the user's client, filling in the absolute paths:
+
+```sh
+claude mcp add inkling \
+  --env CLAUDE_WIKI_PATH=/absolute/path/to/vault \
+  --env CLAUDE_RERANK_MODEL=gemma3:12b \
+  -- node /absolute/path/to/inkling/mcp/dist/index.js
+```
+
+`CLAUDE_RERANK_MODEL` is worth setting: without a judge, search cannot answer "the vault has nothing
+on this", and every result then carries a line saying relevance was not checked. Requires Node 18+;
+no Node means no server, and the rest of the install is unaffected.
+
+Verify with `node smoke.mjs` from `mcp/` — it speaks the protocol to the built server and exercises
+every tool. Full detail in `mcp/README.md`.
+
 ## 5. How it is invoked, and what done looks like
 
 The hooks run themselves. The skills are invoked by name in a session:

@@ -38,12 +38,16 @@ from typing import Dict, List, Optional
 
 # Where the embeddings come from. Two shapes are supported and the URL picks between
 # them, so there is no provider flag to get wrong:
-#   ollama              http://localhost:11434        -> POST /api/embed
-#   OpenAI-compatible   http://localhost:1234/v1      -> POST /v1/embeddings
+#   ollama              http://127.0.0.1:11434        -> POST /api/embed
+#   OpenAI-compatible   http://127.0.0.1:1234/v1      -> POST /v1/embeddings
 # LM Studio, llama.cpp and vLLM all speak the second one. CLAUDE_EMBED_URL wins when set;
 # OLLAMA_HOST is still honoured so an existing setup keeps working untouched.
+# The default is the IPv4 LITERAL, never the name "localhost": these servers bind IPv4 only, and on
+# Windows the name resolves to ::1 first, where a refused loopback connection costs ~2 s before the
+# client falls back. Measured 2026-08-06: 2.04 s of pure waiting on every single embed batch, which
+# on a full `index` run over a vault is 2 s per 24-note batch and looks exactly like a slow model.
 EMBED_URL = os.environ.get("CLAUDE_EMBED_URL", "").rstrip("/") or \
-    os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+    os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
 OLLAMA_URL = EMBED_URL  # kept for the existing call sites
 MODEL = os.environ.get("CLAUDE_EMBED_MODEL", "bge-m3")
 EMBED_BATCH = 24
@@ -428,6 +432,8 @@ def main() -> int:
     ps.add_argument("--corpus", default="code")
     ps.add_argument("--rerank", action="store_true",
                     help="re-score the shortlist with CLAUDE_RERANK_MODEL (slower, sharper)")
+    ps.add_argument("--json", action="store_true",
+                    help="machine-readable result (used by the MCP server; humans want the default)")
     pg = sub.add_parser("suggest", help="propose `related` links for one note or the whole vault")
     pg.add_argument("--note", default=None, help="note name (filename stem); omit for every note")
     pg.add_argument("-k", type=int, default=SUGGEST_MAX_PER_NOTE)
@@ -452,12 +458,33 @@ def main() -> int:
         else:
             results = search(args.query, args.corpus, wanted)
 
+        wants_json = getattr(args, "json", False)
+        reranked = bool(getattr(args, "rerank", False)) and bool(RERANK_MODEL)
         if not results:
-            if getattr(args, "rerank", False) and RERANK_MODEL:
-                print(f"[semantic] {MODEL} + {RERANK_MODEL} · nothing in the vault answers "
-                      f"\"{args.query}\" — every candidate scored below {RERANK_FLOOR:.0f}/10")
+            # THE VERDICT MUST SURVIVE THE FORMAT. "The judge read every candidate and rejected all
+            # of them" and "there is no index to search" are opposite facts, and an empty list says
+            # neither. The prose branch already distinguished them; the JSON branch has to as well,
+            # or a caller reading the machine format loses the one thing this stage adds.
+            if reranked:
+                verdict, note = "rejected", (
+                    f"nothing in the vault answers this — every candidate scored below "
+                    f"{RERANK_FLOOR:.0f}/10 with {RERANK_MODEL}")
             else:
-                print(f"[semantic] no notes in the {args.corpus} corpus index — is the wiki compiled?")
+                verdict, note = "no-index", (
+                    f"no notes in the {args.corpus} corpus index — is the wiki compiled?")
+            if wants_json:
+                print(json.dumps({"query": args.query, "corpus": args.corpus, "model": MODEL,
+                                  "judge": RERANK_MODEL if reranked else None,
+                                  "verdict": verdict, "note": note, "results": []},
+                                 ensure_ascii=False))
+            else:
+                print(f"[semantic] {MODEL}{' + ' + RERANK_MODEL if reranked else ''} · {note}")
+            return 0
+        if wants_json:
+            print(json.dumps({"query": args.query, "corpus": args.corpus, "model": MODEL,
+                              "judge": RERANK_MODEL if reranked else None,
+                              "verdict": "hits", "note": None, "results": results},
+                             ensure_ascii=False))
             return 0
         judged = " + " + RERANK_MODEL if any("judge" in r for r in results) else ""
         print(f"[semantic] {MODEL}{judged} · query: \"{args.query}\" · top {len(results)}")
@@ -466,6 +493,14 @@ def main() -> int:
             print(f"  {r['score']:.3f}{mark}  {r['path']}  —  {r['name']}: {first_sentence(r['summary'])}")
         return 0
     except OllamaUnavailable as exc:
+        if getattr(args, "json", False):
+            # Unreachable is NOT the same as empty, and a caller that cannot tell them apart will
+            # report "the vault has nothing on this" when the embedder is simply not running.
+            print(json.dumps({"query": getattr(args, "query", ""), "corpus": args.corpus,
+                              "model": MODEL, "judge": None, "verdict": "unavailable",
+                              "note": f"{MODEL} unavailable ({exc}) - fall back to lexical recall",
+                              "results": []}, ensure_ascii=False))
+            return 0
         print(f"[semantic] ollama/{MODEL} unavailable ({exc}). Falling back to lexical recall — "
               f"start ollama or rely on the [RECALL] hook.", file=sys.stderr)
         print("[semantic] unavailable — use lexical recall for this query.")

@@ -28,6 +28,18 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 PYTHON = sys.executable
 
+# A check prints what it saw, and what it saw comes out of a vault that may be in any language. On
+# Windows stdout defaults to the locale codepage, so a summary containing "→" raised
+# UnicodeEncodeError while PRINTING a passing result - which the harness then reported as a FAILED
+# check. That is the instrument breaking, not the system under test, and it is the worst kind of
+# false alarm: the one that fires on a healthy install and teaches the reader to distrust the suite.
+# Same guard semantic.py already applies to itself.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 results = []
 
 
