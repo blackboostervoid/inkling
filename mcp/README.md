@@ -21,16 +21,29 @@ The two rails are complements, not alternatives. Keep the hook.
 
 ## Install
 
+It goes into your Claude config directory alongside the rest of inkling, not left in the clone —
+a server pointed at a checkout dies the day you delete the checkout, and nothing warns you.
+
 ```sh
-cd mcp
-npm install
-npm run build
+CONFIG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+cp -r mcp "$CONFIG/"
+bash "$CONFIG/mcp/build.sh"
+```
+
+`build.sh` installs and compiles, and re-running it is free: it does nothing when the build is
+current and rebuilds when a source file is newer. Add it to SessionStart so every machine keeps its
+own build (and gitignore `mcp/dist/` and `mcp/node_modules/` if your config directory is versioned):
+
+```json
+{ "type": "command", "command": "bash \"$CLAUDE_CONFIG_DIR/mcp/build.sh\"" }
 ```
 
 Then register it with your client. For Claude Code:
 
 ```sh
-claude mcp add inkling --env CLAUDE_WIKI_PATH=/absolute/path/to/vault -- node /absolute/path/to/inkling/mcp/dist/index.js
+claude mcp add inkling --scope user \
+  --env CLAUDE_WIKI_PATH=/absolute/path/to/vault \
+  -- node "$CONFIG/mcp/dist/index.js"
 ```
 
 Or as JSON, for any client that takes a config file:

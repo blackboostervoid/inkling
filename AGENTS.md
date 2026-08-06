@@ -195,21 +195,31 @@ to remember to type. A tool carries its own description in the protocol instead,
 it every turn with no one remembering anything. That, not access from other clients, is what the
 server is for. It does not replace the hook; the two rails are complements.
 
-Nothing is copied into `CONFIG`. It is built once and run from the repository:
+It installs into `CONFIG` like everything else, and for the same reason: a server pointed at whatever
+directory the repository was cloned into breaks the day that directory is deleted, and nothing warns.
 
 ```sh
-cd mcp
-npm install
-npm run build
+CONFIG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+cp -r mcp "$CONFIG/"
+bash "$CONFIG/mcp/build.sh"
 ```
 
-Register it with the user's client, filling in the absolute paths:
+`build.sh` installs dependencies and compiles, and it is safe to re-run: it does nothing when the
+build is current, and rebuilds when a source is newer. Wire it into SessionStart next to
+`build_hooks.sh` so each machine keeps its own build — `dist/` and `node_modules/` should be
+gitignored if the config directory is under version control, exactly like the Go binaries:
+
+```json
+{ "type": "command", "command": "bash \\"$CLAUDE_CONFIG_DIR/mcp/build.sh\\"" }
+```
+
+Register it with the user's client:
 
 ```sh
-claude mcp add inkling \
+claude mcp add inkling --scope user \
   --env CLAUDE_WIKI_PATH=/absolute/path/to/vault \
   --env CLAUDE_RERANK_MODEL=gemma3:12b \
-  -- node /absolute/path/to/inkling/mcp/dist/index.js
+  -- node "$CONFIG/mcp/dist/index.js"
 ```
 
 `CLAUDE_RERANK_MODEL` is worth setting: without a judge, search cannot answer "the vault has nothing
