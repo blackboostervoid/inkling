@@ -58,10 +58,14 @@ server.registerTool(
       "behaviour, why an approach was rejected. Cheap to try and worth trying before answering " +
       "from memory. With rerank on (the default) a local model reads the shortlist and may answer " +
       "that the vault holds NOTHING on the subject - that verdict is a real result, not a failure, " +
-      "and it means you can stop looking here.",
+      "and it means you can stop looking here. " +
+      "This searches the note BODIES at section granularity, which the automatic [RECALL] block " +
+      "does not - that one only ever sees a note's title, tags and summary. So a note whose " +
+      "summary is about another subject entirely, but which happens to answer this question in " +
+      "one of its sections, is reachable ONLY here. Results name the sections that matched.",
     inputSchema: {
       query: z.string().describe("What you want to know, phrased as a question or a topic."),
-      k: z.number().int().min(1).max(20).default(5).describe("How many notes to return."),
+      k: z.number().int().min(1).max(20).default(10).describe("How many notes to return."),
       rerank: z
         .boolean()
         .default(true)
@@ -81,10 +85,24 @@ server.registerTool(
       if (found.verdict === "unavailable" || found.verdict === "no-index") {
         return ok(`Search could not run: ${found.note ?? found.verdict}`);
       }
+      // A corpus bound to another project. Deliberate scoping, not an outage and not an empty
+      // vault - saying so plainly is what stops the caller from retrying or from reporting
+      // "there is nothing on this" about a vault it was simply not allowed to open.
+      if (found.verdict === "out-of-scope") {
+        return ok(`Not searched: ${found.note ?? "this corpus is scoped to another project."}`);
+      }
       if (found.results.length === 0) return ok(`No notes matched "${query}".`);
       const lines = found.results.map((r) => {
         const judged = r.judge !== undefined ? ` judge ${r.judge.toFixed(0)}/10` : "";
-        return `- ${r.name} (${r.path})  score ${r.score.toFixed(3)}${judged}\n  ${r.summary}`;
+        // Naming the sections is what makes a whole-note result usable. The match happened at
+        // section granularity; handing back only the note would leave the caller to re-find the
+        // paragraph that pulled it in, and handing back the bare paragraph would strip the
+        // context that keeps it honest. So: whole note, with a pointer to where to look.
+        const where =
+          r.matched && r.matched.length > 0
+            ? `\n  matched in: ${r.matched.slice(0, 3).join(" · ")}`
+            : "";
+        return `- ${r.name} (${r.path})  score ${r.score.toFixed(3)}${judged}\n  ${r.summary}${where}`;
       });
       const engine = found.judge ? `${found.model} + ${found.judge}` : found.model;
       // The judge is optional and OFF unless CLAUDE_RERANK_MODEL names a model. Asking for it and
@@ -94,11 +112,27 @@ server.registerTool(
       // judgement must never be handed over looking like a made one.
       const unjudged =
         rerank && found.judge === null
-          ? "\n\n[relevance NOT checked - no CLAUDE_RERANK_MODEL is configured, so these are raw " +
+          ? `\n\n[relevance NOT checked - ${found.note ?? "no judge answered"}, so these are raw ` +
             "similarity matches and the search cannot tell you the vault has nothing on this.]"
           : "";
+      const swapped =
+        found.judge && found.judge_asked && found.judge !== found.judge_asked
+          ? `\n\n[judged by ${found.judge}, not ${found.judge_asked} - ${found.note ?? "reason not given"}]`
+          : "";
+      // The pull rail's usage marker. The push rail has had one since it was built, which is the
+      // only reason anything is known about which notes earn their place; this door has been
+      // uncounted, so a note that works here has looked dead in the ledger. Named SMRITI against
+      // the push rail's RECALL after the sruti/smrti pair - what arrives unbidden versus what is
+      // fetched by an act of will, which is exactly the difference between the two doors.
+      //
+      // The placeholder below is written with angle brackets on purpose: the ledger credits only
+      // a marker naming a note that actually exists, so this instruction can never credit itself.
+      const marker =
+        "\n\nIf one of these notes changes what you do, emit `[SMRITI-USED] <note-name> - " +
+        "<one-line why>` in your reply. That marker is the only record this door leaves; without " +
+        "it a note that earned its place here is indistinguishable from one nobody ever opened.";
       return ok(
-        `${found.results.length} note(s) for "${query}"  [${engine}]\n\n${lines.join("\n")}${unjudged}`
+        `${found.results.length} note(s) for "${query}"  [${engine}]\n\n${lines.join("\n")}${unjudged}${swapped}${marker}`
       );
     } catch (err) {
       return failed(err);

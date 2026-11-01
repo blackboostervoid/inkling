@@ -327,15 +327,44 @@ def namespace_targets(config_dir: Path) -> List[Tuple[Path, Optional[Path], Path
             continue
         wiki_root = Path(wiki_path)
         output = _recall_dir(config_dir) / f"index_compiled_{ns}.json"
-        targets.append((wiki_root, wiki_root / "INDEX.md", output, "index"))
+        targets.append((wiki_root, wiki_root / "INDEX.md", output, "union"))
     return targets
+
+
+def compile_union(wiki_root: Path, index_md: Optional[Path], output: Path):
+    """A membership list cannot report what it is missing: a note nobody listed froze a corpus for 26.7 days."""
+    entries = enumerate_from_frontmatter(wiki_root)
+    seen = {e["path"] for e in entries}
+    outside: List[Dict] = []
+    parsed: List[Dict] = []
+    if index_md is not None and index_md.exists():
+        try:
+            parsed = parse_index(index_md.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            parsed = []
+        outside = [e for e in build(wiki_root, parsed) if e["path"] not in seen]
+    compiled = entries + outside
+    if not compiled:
+        return None, False
+    stale = needs_rebuild_glob(wiki_root, output, compiled)
+    if not stale and index_md is not None:
+        idx_mtime = _mtime_or_none(index_md)
+        out_mtime = _mtime_or_none(output)
+        stale = idx_mtime is not None and out_mtime is not None and idx_mtime > out_mtime
+    return compiled, stale
 
 
 def compile_target(wiki_root: Path, index_md: Optional[Path], output: Path, source: str) -> Optional[int]:
     """Compile one corpus -> output. `source` selects where the note list + tags come from:
-    "frontmatter" globs the notes (INDEX-less, code wiki); "index" parses INDEX.md (namespaces).
+    "frontmatter" globs the notes; "index" parses INDEX.md; "union" globs the root and keeps INDEX entries outside it.
     Returns entry count on rebuild, 0 if already up to date, None if nothing to compile / write failed."""
-    if source == "frontmatter":
+    if source == "union":
+        compiled, stale = compile_union(wiki_root, index_md, output)
+        if compiled is None:
+            return None
+        if not stale:
+            return 0
+    elif source == "frontmatter":
         entries = enumerate_from_frontmatter(wiki_root)
         if not entries:
             return None

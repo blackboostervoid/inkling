@@ -16,6 +16,10 @@ So this check asks a different question from every other test: not "does it work
 takes every source path it names, and requires git to be tracking it.
 
     python3 tests/check_shipped.py
+
+Exit codes: 0 = every promise kept. 1 = at least one path the contract names is not in the
+repository. 2 = there is no repository here, so nothing was judged - not a pass, and never
+reported as one.
 """
 
 import json
@@ -34,7 +38,18 @@ HOOK_PATH = re.compile(r"\$(?:\{)?CLAUDE_CONFIG_DIR(?:\})?/([A-Za-z0-9_./-]+)")
 
 
 def tracked_files() -> set:
-    out = subprocess.run(["git", "ls-files"], cwd=REPO, capture_output=True, text=True, check=True)
+    """Every path git is tracking, or None when there is no repository to ask.
+
+    None is a THIRD state and not an empty set. An empty set means git answered and the
+    repository holds nothing, which fails every check below - correctly. No repository at all
+    means the question was never put, and answering it with zero tracked files would report
+    every promise as broken for a reason that has nothing to do with the promises. The case is
+    ordinary rather than exotic: this file is authored outside a clone and only becomes part of
+    one at publish time.
+    """
+    out = subprocess.run(["git", "ls-files"], cwd=REPO, capture_output=True, text=True)
+    if out.returncode != 0:
+        return None
     return {line.strip() for line in out.stdout.splitlines() if line.strip()}
 
 
@@ -115,6 +130,11 @@ def main() -> int:
     print("  SHIPPED-TREE CHECK - what a clone would actually contain")
     print("=" * 68)
     tracked = tracked_files()
+    if tracked is None:
+        print(f"[UNJUDGED] {REPO} is not a git repository, so nothing here was checked.")
+        print("           This check asks what a CLONE would contain, and only a repository can")
+        print("           answer that. Run it from the clone you are about to push.")
+        return 2
     print(f"[INFO] {len(tracked)} files tracked by git")
 
     problems = (check_install_table(tracked) + check_hook_commands(tracked)

@@ -1,8 +1,8 @@
 # @module: distill
 # @role: orchestrate the write side of Layer 6 - gather inputs -> Haiku -> candidate recipes
-# @deps: inputs (sibling); anthropic (optional, lazy - graceful no-op if absent)
-# @used-by: /handoff, /plan-implement (verifier OK), /debug success, weekly batch
-# @doc: lab/akasha_engine/6_procedural/CONCEPT.md#the-distiller--write-side
+# @deps: inputs (sibling); hooks/recall/recipe_blocks (the block format, by path); anthropic (optional, lazy - graceful no-op if absent)
+# @used-by: the /procedural skill, weekly batch
+# @doc: RECIPE_FORMAT.md#one-recipe
 """
 The distiller. Reads the three curated artifacts (via inputs.gather), asks Haiku to
 extract repeatable recipes, and writes/merges them as CANDIDATES into
@@ -31,16 +31,17 @@ from pathlib import Path
 
 import inputs  # sibling module
 
+# One block grammar for every reader, in infrastructure: three private copies of the old
+# positional pattern were how one malformed block hid a month of recipes from all of them at once.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "hooks" / "recall"))
+from recipe_blocks import parse_blocks, parse_frontmatter, unreadable_text  # noqa: E402
+
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 MAX_TOKENS = 3000
 CANDIDATES_HEADER = (
     "# Procedural candidates\n\n"
     "Auto-distilled drafts. Non-conflicting ones auto-promote (SessionStart + /procedural batch);\n"
     "conflicting ones wait here for review via /procedural.\n"
-)
-BLOCK_PATTERN = re.compile(
-    r"^---[ \t]*$\n(.*?)^---[ \t]*$\n(.*?)(?=^---[ \t]*$|\Z)",
-    re.MULTILINE | re.DOTALL,
 )
 
 
@@ -57,7 +58,7 @@ SLUG_MAX_LEN = 48
 
 
 def slugify(title: str) -> str:
-    # Transliterate non-Latin -> latin so a title in any script yields a typeable ASCII slug
+    # Transliterate Cyrillic -> latin so a Russian title yields a typeable ASCII slug
     # (recipes are promoted by slug on the command line). Drop any other non-ascii, then
     # cap the length at a word boundary so titles do not produce a monster slug.
     lowered = "".join(_CYR_LAT.get(ch, ch) for ch in title.strip().lower())
@@ -88,12 +89,18 @@ def proc_to_recipe(proc: dict, session_id: str) -> dict:
     }
 
 
+def _one_line(value: str) -> str:
+    """A frontmatter value on one line. A title carrying a newline wrote a second, key-less line into
+    the frontmatter; the reader rejects that block and the next rewrite deleted it."""
+    return " ".join(str(value).split())
+
+
 def serialize_recipe(r: dict) -> str:
     return (
         "---\n"
-        f"slug: {r['slug']}\n"
-        f"trigger: {r['trigger']}\n"
-        f"keywords: [{', '.join(r['keywords'])}]\n"
+        f"slug: {_one_line(r['slug'])}\n"
+        f"trigger: {_one_line(r['trigger'])}\n"
+        f"keywords: [{', '.join(_one_line(k) for k in r['keywords'])}]\n"
         f"status: {r['status']}\n"
         f"source_sessions: [{', '.join(r['source_sessions'])}]\n"
         "---\n"
@@ -107,12 +114,8 @@ def _parse_list(raw: str) -> list:
 
 def parse_candidates(text: str) -> list:
     recipes = []
-    for fm_text, body in BLOCK_PATTERN.findall(text):
-        fm = {}
-        for line in fm_text.splitlines():
-            if ":" in line:
-                key, _, val = line.partition(":")
-                fm[key.strip().lower()] = val.strip()
+    for _, _, fm_text, body in parse_blocks(text):
+        fm = parse_frontmatter(fm_text)
         slug = fm.get("slug", "").strip()
         if not slug:
             continue
@@ -236,7 +239,15 @@ def main() -> int:
         return 0
 
     new_recipes = [proc_to_recipe(p, args.session_id) for p in procedurals]
-    existing = parse_candidates(candidates_path.read_text(encoding="utf-8")) if candidates_path.is_file() else []
+    current = candidates_path.read_text(encoding="utf-8") if candidates_path.is_file() else ""
+    # The rewrite below re-serialises parsed blocks only, so any candidate text no reader parses
+    # would be deleted without a word. Refuse instead, and name it.
+    lost, stray = unreadable_text(current)
+    if lost or stray:
+        print(f"[ERROR] {candidates_path} holds candidate text no reader parses ({', '.join(lost + stray)}); "
+              f"refusing to rewrite the file, which would delete it. Fix those blocks' shape, then re-run.")
+        return 1
+    existing = parse_candidates(current)
     merged, added, bumped = merge(existing, new_recipes)
 
     out = CANDIDATES_HEADER + "\n" + "\n".join(serialize_recipe(r) for r in merged)

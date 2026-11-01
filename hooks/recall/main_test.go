@@ -329,12 +329,140 @@ func TestFindMatches_AllInCooldown(t *testing.T) {
 	}
 }
 
-func TestFindMatches_RespectsMaxResults(t *testing.T) {
+func TestFindMatches_RespectsCandidateCap(t *testing.T) {
 	// Broad prompt that touches every entry.
 	bigPrompt := "orchestrator debugging voyage claude prompt few-shot framework silent swallowed"
 	matches := findMatches(bigPrompt, makeWiki(), Lens{}, nil)
-	if len(matches) > maxResults {
-		t.Errorf("expected ≤%d matches, got %d", maxResults, len(matches))
+	if len(matches) > maxCandidates {
+		t.Errorf("expected ≤%d candidates, got %d", maxCandidates, len(matches))
+	}
+}
+
+// The pool the judge considers and the output the prompt receives are two different widths.
+// Getting this backwards is the failure that matters: an unjudged rail handing over the wide
+// pool would ship ten unchecked notes on every prompt the moment ollama stops.
+func TestDisplayLimit_NarrowsWhenUnjudged(t *testing.T) {
+	if got := displayLimit(true); got != maxJudgedResults {
+		t.Errorf("judged: expected %d, got %d", maxJudgedResults, got)
+	}
+	if got := displayLimit(false); got != maxUnjudgedResults {
+		t.Errorf("unjudged: expected %d, got %d", maxUnjudgedResults, got)
+	}
+	if maxUnjudgedResults >= maxJudgedResults {
+		t.Errorf("unjudged width (%d) must stay below judged width (%d)",
+			maxUnjudgedResults, maxJudgedResults)
+	}
+	if maxCandidates <= maxJudgedResults {
+		t.Errorf("candidate pool (%d) must exceed what is displayed (%d), or the judge has "+
+			"nothing to choose from", maxCandidates, maxJudgedResults)
+	}
+}
+
+// The evidence multiplier decides which notes the ledger promotes and which it buries, so the
+// property that matters most is the one about notes with NO history: unproven must be neutral.
+// Penalising absence of evidence would freeze the corpus — a new note would never be shown,
+// never acquire history, and never escape.
+func TestEvidenceMultiplier(t *testing.T) {
+	sessions := func(n int) []string {
+		out := make([]string, n)
+		for i := range out {
+			out[i] = "s"
+		}
+		return out
+	}
+
+	if got := evidenceMultiplier(LedgerEntry{}); got != 1.0 {
+		t.Errorf("a note with no history must be neutral, got %v", got)
+	}
+	if got := evidenceMultiplier(LedgerEntry{FiredSessions: sessions(3)}); got < 0.9 {
+		t.Errorf("3 fruitless firings is thin evidence and must barely move, got %v", got)
+	}
+
+	loud := evidenceMultiplier(LedgerEntry{FiredSessions: sessions(41)})
+	mid := evidenceMultiplier(LedgerEntry{FiredSessions: sessions(15)})
+	if !(loud < mid && mid < 1.0) {
+		t.Errorf("damp must be monotonic in fruitless firings: 41 -> %v, 15 -> %v", loud, mid)
+	}
+
+	// A single use flips a note from damped to lifted, however loud it was: the damp is a
+	// statement about NEVER landing, not about a poor ratio.
+	lifted := evidenceMultiplier(LedgerEntry{
+		FiredSessions: sessions(41), UsedSessions: sessions(1), Confidence: 0.2})
+	if lifted <= 1.0 {
+		t.Errorf("a note that has landed must never be damped, got %v", lifted)
+	}
+
+	// A note dead on the push door but alive through the MCP body search must NOT be damped —
+	// this is the whole reason the two doors are counted separately.
+	pullOnly := evidenceMultiplier(LedgerEntry{
+		FiredSessions:       sessions(20),
+		SmritiFiredSessions: sessions(4),
+		SmritiUsedSessions:  sessions(3),
+		SmritiConfidence:    0.75,
+	})
+	if pullOnly <= 1.0 {
+		t.Errorf("alive through the second door must lift, not damp, got %v", pullOnly)
+	}
+
+	if got := evidenceMultiplier(LedgerEntry{
+		UsedSessions: sessions(1), Confidence: 1.0}); got != 1.0+evidenceLiftGain {
+		t.Errorf("full confidence must reach the lift ceiling, got %v", got)
+	}
+}
+
+// Regression, and the bug was live: evidence must ORDER the pool, never GATE it.
+//
+// When the multiplier was applied before the floor, `yaml-reserved-words` stopped answering the
+// question "in yaml `off` turns into false" — its own subject — because 41 fruitless firings
+// pushed its score under the threshold while two lifted notes about nothing in particular took
+// its place. A note's history had acquired a veto over its relevance.
+func TestEvidence_RanksButDoesNotGate(t *testing.T) {
+	wiki := makeWiki()
+	prompt := "orchestrator architecture suborc"
+
+	ledger = nil
+	baseline := findMatches(prompt, wiki, Lens{}, nil)
+	if len(baseline) == 0 {
+		t.Fatal("fixture produced no matches; the rest of this test cannot mean anything")
+	}
+	top := baseline[0].Entry.Name
+
+	// Damp the best match as hard as the formula ever damps anything.
+	fired := make([]string, 60)
+	for i := range fired {
+		fired[i] = "s"
+	}
+	ledger = map[string]LedgerEntry{top: {FiredSessions: fired}}
+	defer func() { ledger = nil }()
+
+	after := findMatches(prompt, wiki, Lens{}, nil)
+	found := false
+	for _, m := range after {
+		if m.Entry.Name == top {
+			found = true
+			if m.FusedScore != baseline[0].FusedScore {
+				t.Errorf("the gate must see the UNWEIGHTED score: %v vs %v",
+					m.FusedScore, baseline[0].FusedScore)
+			}
+			if m.RankScore >= m.FusedScore {
+				t.Errorf("a damped note must rank below its own topical score: rank %v, fused %v",
+					m.RankScore, m.FusedScore)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("%q was damped out of the pool entirely — evidence gated instead of ranking", top)
+	}
+}
+
+func TestCapMatches_TrimsAndPreservesOrder(t *testing.T) {
+	in := []Match{{FusedScore: 3}, {FusedScore: 2}, {FusedScore: 1}}
+	out := capMatches(in, 2)
+	if len(out) != 2 || out[0].FusedScore != 3 || out[1].FusedScore != 2 {
+		t.Errorf("expected the top two in order, got %+v", out)
+	}
+	if got := capMatches(in, 10); len(got) != 3 {
+		t.Errorf("a limit above the length must not trim: got %d", len(got))
 	}
 }
 
@@ -724,7 +852,7 @@ func TestSanitizeNamespace_StripsUnsafe(t *testing.T) {
 	cases := map[string]string{
 		"personal":  "personal",
 		"PERSONAL":  "personal",
-		"per sonal": "personal",
+		"perso nal": "personal",
 		"../evil":   "evil",
 		"a/b\\c":    "abc",
 		"life_2":    "life_2",
@@ -862,12 +990,12 @@ func TestCorporaWikiPath_ReadsRegistry(t *testing.T) {
 	baseDir = tmpDir
 	t.Cleanup(func() { baseDir = originalBaseDir })
 
-	reg := `{"personal": {"wiki_path": "/vaults/personal"}}`
+	reg := `{"personal": {"wiki_path": "/absolute/path/to/another/vault/personal"}}`
 	if err := os.WriteFile(filepath.Join(tmpDir, "corpora.json"), []byte(reg), 0644); err != nil {
 		t.Fatal(err)
 	}
 	got := corporaWikiPath("personal")
-	want := "/vaults/personal/" // trailing slash appended
+	want := "/absolute/path/to/another/vault/personal/" // trailing slash appended
 	if got != want {
 		t.Errorf("corporaWikiPath(personal) = %q, want %q", got, want)
 	}
@@ -931,113 +1059,5 @@ func TestFindMatches_StemSurfacesObliqueForm(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("stemming must surface nutrition on oblique 'питания'")
-	}
-}
-
-// ========================================================================================
-// v2.9 — one link hop along `related`
-// ========================================================================================
-
-func linkWiki() []IndexEntry {
-	return []IndexEntry{
-		{Name: "retry-storm", Path: "patterns/retry-storm.md", Tags: []string{"retry", "timeout"},
-			Summary: "retries pile onto a saturated callee", Related: []string{"patterns/circuit-breaker.md"}},
-		{Name: "circuit-breaker", Path: "patterns/circuit-breaker.md", Tags: []string{"breaker"},
-			Summary: "break the circuit after N failures"},
-		{Name: "unrelated", Path: "x/u.md", Tags: []string{"pizza"}, Summary: "nothing to do with it"},
-	}
-}
-
-func TestLinkHop_PullsTheLinkedNoteIn(t *testing.T) {
-	index := linkWiki()
-	matches := linkedMatches(findMatches("retry timeout problem", index, Lens{}, nil), index)
-	if len(matches) != 2 {
-		t.Fatalf("want the match plus its one link; got %d", len(matches))
-	}
-	if matches[1].Entry.Name != "circuit-breaker" {
-		t.Errorf("linked note must be the one `related` names; got %s", matches[1].Entry.Name)
-	}
-	if matches[1].LinkedFrom != "retry-storm" {
-		t.Errorf("a linked note must say what pulled it in; got %q", matches[1].LinkedFrom)
-	}
-	if matches[0].LinkedFrom != "" {
-		t.Errorf("a direct match must not be marked as linked")
-	}
-}
-
-func TestLinkHop_MarksTheLinkInTheSignal(t *testing.T) {
-	index := linkWiki()
-	matches := linkedMatches(findMatches("retry timeout problem", index, Lens{}, nil), index)
-	out := formatSignal(matches, "[RECALL]", "")
-	if !strings.Contains(out, "linked from retry-storm") {
-		t.Errorf("the signal must say a note arrived by link, not by matching; got:\n%s", out)
-	}
-}
-
-func TestLinkHop_SilentWithoutLinks(t *testing.T) {
-	index := []IndexEntry{{Name: "lonely", Path: "x/l.md", Tags: []string{"retry"}, Summary: "no links"}}
-	matches := linkedMatches(findMatches("retry", index, Lens{}, nil), index)
-	if len(matches) != 1 {
-		t.Errorf("a match with no `related` must not grow; got %d", len(matches))
-	}
-}
-
-func TestLinkHop_NeverDuplicates(t *testing.T) {
-	// Both notes match the prompt on their own AND link to each other.
-	index := []IndexEntry{
-		{Name: "a", Path: "x/a.md", Tags: []string{"retry"}, Summary: "one", Related: []string{"x/b.md"}},
-		{Name: "b", Path: "x/b.md", Tags: []string{"retry"}, Summary: "two", Related: []string{"x/a.md"}},
-	}
-	matches := linkedMatches(findMatches("retry", index, Lens{}, nil), index)
-	seen := map[string]bool{}
-	for _, m := range matches {
-		if seen[m.Entry.Name] {
-			t.Fatalf("note %s appears twice", m.Entry.Name)
-		}
-		seen[m.Entry.Name] = true
-	}
-}
-
-func TestLinkHop_DanglingLinkIsSkipped(t *testing.T) {
-	index := []IndexEntry{
-		{Name: "a", Path: "x/a.md", Tags: []string{"retry"}, Summary: "one",
-			Related: []string{"x/deleted.md", "x/b.md"}},
-		{Name: "b", Path: "x/b.md", Tags: []string{"unrelated-word"}, Summary: "two"},
-	}
-	matches := linkedMatches(findMatches("retry", index, Lens{}, nil), index)
-	if len(matches) != 2 || matches[1].Entry.Name != "b" {
-		t.Fatalf("a link to a missing note must be skipped, not fatal; got %+v", matches)
-	}
-}
-
-func TestLinkHop_AddsAtMostOne(t *testing.T) {
-	index := []IndexEntry{
-		{Name: "hub", Path: "x/hub.md", Tags: []string{"retry"}, Summary: "hub",
-			Related: []string{"x/one.md", "x/two.md", "x/three.md"}},
-		{Name: "one", Path: "x/one.md", Tags: []string{"q"}, Summary: "1"},
-		{Name: "two", Path: "x/two.md", Tags: []string{"q"}, Summary: "2"},
-		{Name: "three", Path: "x/three.md", Tags: []string{"q"}, Summary: "3"},
-	}
-	matches := linkedMatches(findMatches("retry", index, Lens{}, nil), index)
-	if len(matches) != 2 {
-		t.Errorf("a hub note must add exactly one link, not all of them; got %d", len(matches))
-	}
-}
-
-func TestLinkHop_OnlyTheTopMatchHops(t *testing.T) {
-	// Two direct matches; only the stronger one is allowed to pull a link in.
-	index := []IndexEntry{
-		{Name: "strong", Path: "x/s.md", Tags: []string{"retry", "timeout"}, Summary: "retry timeout",
-			Related: []string{"x/linked.md"}},
-		{Name: "weak", Path: "x/w.md", Tags: []string{"retry"}, Summary: "retry only",
-			Related: []string{"x/other.md"}},
-		{Name: "linked", Path: "x/linked.md", Tags: []string{"zzz"}, Summary: "pulled in"},
-		{Name: "other", Path: "x/other.md", Tags: []string{"zzz"}, Summary: "must not appear"},
-	}
-	matches := linkedMatches(findMatches("retry timeout", index, Lens{}, nil), index)
-	for _, m := range matches {
-		if m.Entry.Name == "other" {
-			t.Errorf("only the top match may hop; a lower match pulled %s in", m.Entry.Name)
-		}
 	}
 }

@@ -49,11 +49,25 @@ INBOX_NAME = "capture_inbox.md"
 INBOX_HEADER = "# Capture Inbox — staged candidates\n\n> Review with `/capture-review`: promote the durable ones to their home (wiki / memory / rejected-list), drop the rest. Regex staged these; judgment keeps or kills them.\n"
 MAX_QUOTE_CHARS = 240
 MIN_QUOTE_CHARS = 25
-# A candidate line the review skill has not yet resolved. Promoted/dropped lines are removed
-# entirely by /capture-review, so every remaining "- [" bullet is pending by definition.
+# A staged candidate line, RESOLVED OR NOT. Used for dedup, which must see every quote the file
+# has ever carried -- a resolved line still has to suppress a re-stage of the same quote.
 # The quote is captured greedily to the LAST quote on the line: a staged quote may itself contain
 # `"` characters, and a lazy or character-class match would split it and break dedup.
-_CANDIDATE_RE = re.compile(r'^\s*-\s*\[[a-z]+\]\s+"(.*)"\s*$', re.MULTILINE)
+#
+# `<!--resolved-->` is how /capture-review marks a line it has judged. The comment that used to
+# stand here said "Promoted/dropped lines are removed entirely by /capture-review, so every
+# remaining bullet is pending by definition" -- a WHY-line no gate reads, and it was false against
+# what reviews actually do. Measured 2026-08-23 on a live project: every one of the seven lines
+# inbox had a written disposition, four separate reviews had recorded that they keep resolved lines
+# ON PURPOSE (the record of what was dropped is the point, and the quotes still feed dedup), and
+# the nudge announced "7 staged candidates await review" at every session start for weeks. Three
+# consecutive reviews wrote down that the counter counts records rather than work, and the fourth
+# stopped writing it down and fixed it. Deleting the line still works and still reads as zero
+# pending -- this only makes the OTHER practice countable.
+_CANDIDATE_RE = re.compile(r'^\s*-\s*\[[a-z]+\]\s+"(.*)"(?:\s*<!--resolved-->)?\s*$', re.MULTILINE)
+# The same line, UNRESOLVED only. This is what "pending" means, and it is a different question
+# from dedup: one asks what is left to do, the other asks what has ever been seen.
+_PENDING_RE = re.compile(r'^\s*-\s*\[[a-z]+\]\s+"(.*)"\s*$', re.MULTILINE)
 _FENCE_RE = re.compile(r'^\s*(?:```|~~~)')
 # A capture category NAMED rather than used — the shape a signals spec has, never natural speech.
 _SPEC_LABEL_RE = re.compile(r'(?:^|[\s*|(])(DECISION|GOTCHA|PATTERN|REJECTED|CAPTURE|SIGNAL)S?\s*[:|]')
@@ -212,7 +226,13 @@ def existing_quotes(inbox: Path) -> set:
 
 
 def pending_count(inbox: Path) -> int:
-    return len(_CANDIDATE_RE.findall(_inbox_text(inbox)))
+    """Candidate lines still awaiting a disposition — NOT every candidate line ever staged.
+
+    Deliberately a different regex from `existing_quotes`: dedup must see resolved lines, the
+    nudge must not. One regex answering both questions is what made the nudge announce a number
+    that could only grow.
+    """
+    return len(_PENDING_RE.findall(_inbox_text(inbox)))
 
 
 def harvest(session_id: str, transcript_path: str, cwd: str, cfg_dir: Path) -> int:
@@ -409,14 +429,28 @@ def main() -> int:
     cfg_dir = config_dir()
 
     if mode == "nudge":
+        lines = []
         if cwd:
             n = pending_count(inbox_path(cwd))
             if n > 0:
-                emit("SessionStart",
-                     f"[CAPTURE-INBOX] {n} staged capture candidate(s) await review in "
-                     f".claude/{INBOX_NAME}. Run /capture-review when convenient to promote the "
-                     f"durable ones or drop the rest. Not urgent -- finish the user's task first.")
-                return 0
+                lines.append(
+                    f"[CAPTURE-INBOX] {n} staged capture candidate(s) await review in "
+                    f".claude/{INBOX_NAME}. Run /capture-review when convenient to promote the "
+                    f"durable ones or drop the rest. Not urgent -- finish the user's task first.")
+        # The observation queue rides the same nudge. Two queues, one signal: they are emptied by
+        # different skills but at the same moment -- the start of a session, before new work
+        # buries them.
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            import observe
+            observed = observe.nudge_line()
+            if observed:
+                lines.append(observed)
+        except (ImportError, OSError, ValueError):
+            pass  # a missing nudge is a quiet queue, never a broken session start
+        if lines:
+            emit("SessionStart", "\n\n".join(lines))
+            return 0
         print("{}")
         return 0
 
@@ -438,9 +472,27 @@ def main() -> int:
         return 0
 
     # default: harvest (Stop)
-    n = harvest(hook.get("session_id", ""), hook.get("transcript_path", ""), cwd, cfg_dir)
+    session_id = hook.get("session_id", "")
+    transcript = hook.get("transcript_path", "")
+    n = harvest(session_id, transcript, cwd, cfg_dir)
     if n:
         print(f"[capture_inbox] staged {n} new candidate(s)", file=sys.stderr)
+
+    # The observation sweep rides in THIS process rather than as a ninth Stop command. The two
+    # read the same transcript for opposite halves — capture reads what the USER said, observe
+    # reads what the agent and its subagents produced — and a separate hook would pay a fresh
+    # interpreter start (~300 ms on every turn end) to walk a file already open here.
+    # Its own module, because the two change for different reasons: capture when the signal
+    # phrases change, observe when agent types or markers do.
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import observe
+        staged = observe.harvest(session_id, transcript, cwd)
+        if staged:
+            print(f"[observe] staged {staged} observation(s) for /compile", file=sys.stderr)
+    except (ImportError, OSError, ValueError) as error:
+        # Bookkeeping must never break the end of a turn. One line, never silent, never fatal.
+        print(f"[WARNING] observe: sweep skipped ({error})", file=sys.stderr)
     return 0
 
 

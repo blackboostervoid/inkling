@@ -27,6 +27,26 @@ type HookInput struct {
 	SessionID      string `json:"session_id"`
 	TranscriptPath string `json:"transcript_path"`
 	Cwd            string `json:"cwd"`
+	Source         string `json:"source"`
+}
+
+var machinePromptMarkers = []string{
+	"[SYSTEM NOTIFICATION - NOT USER INPUT]", "<task-notification>", "<ci-monitor-event>",
+	"<cross-session-message", "[Cross-session delivery notice]", "[Cross-session idle notice]",
+}
+
+// A service notice is not the user's message: measured, 222 of 552 judged passes went on these.
+func isMachinePrompt(input HookInput) bool {
+	if input.Source != "" && input.Source != "user" {
+		return true
+	}
+	head := strings.TrimSpace(input.Prompt)
+	for _, marker := range machinePromptMarkers {
+		if strings.HasPrefix(head, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 type IndexEntry struct {
@@ -49,7 +69,7 @@ type IndexEntry struct {
 // deliberate zero (which would disable the gate entirely).
 //
 // ExcludeTags / ExcludePaths (v2.6) hard-filter entries OUT of the rankable
-// corpus before scoring. Used for project-type awareness: in `claude_concepts`
+// corpus before scoring. Used for project-type awareness: in a notes project
 // Python-pipeline tags are noise; in `a speech pipeline` they are signal. Filters union
 // across user and project levels (both apply, no override).
 //
@@ -95,12 +115,17 @@ type HookSpecific struct {
 // (sentinel for "unranked", see rankByDesc*) is preserved verbatim so the
 // log can distinguish single-rail from dual-rail hits downstream.
 type Match struct {
-	Entry      IndexEntry
-	TagCount   int
-	Bm25Score  float64
-	TagRank    int
-	Bm25Rank   int
+	Entry     IndexEntry
+	TagCount  int
+	Bm25Score float64
+	TagRank   int
+	Bm25Rank  int
+	// FusedScore is TOPICAL fit and is what the floor tests. RankScore is that same score times
+	// the note's track record and is what the ordering uses. They are separate fields because
+	// they answer separate questions, and collapsing them let a note's history veto its
+	// relevance — see the comment where `ranked` is built.
 	FusedScore float64
+	RankScore  float64
 	MatchedOn  []string
 	// LinkedFrom names the match that pulled this one in, empty for a direct match.
 	// The signal shows it, because a linked note was NOT what the prompt matched and
@@ -135,7 +160,22 @@ const (
 	// Drop tokens shorter than this. Keeps short-but-meaningful tags (go, js, ai).
 	minTokenLen = 2
 
-	maxResults = 2
+	// Three numbers where there used to be one, because the cap now does a different job on
+	// each side of the refusal stage (judge.go).
+	//
+	// maxCandidates is the pool the judge is allowed to consider. It is wide on purpose: the
+	// fused score separates applied from ignored firings at AUC 0.548, so a narrow pool is a
+	// coin flip deciding what the only stage that CAN assess relevance ever sees. Precision is
+	// the judge's job; this number's job is recall. It costs almost nothing — judgeMatches
+	// sends one request with the whole listing, so ten candidates and two cost the same call.
+	maxCandidates = 10
+
+	// What reaches the prompt once a judgement was actually made.
+	maxJudgedResults = 5
+
+	// The cap when NO judgement was made — judge off, ollama down, timeout, unparseable reply.
+	maxUnjudgedResults = 4
+
 	// No default vault path: CLAUDE_WIKI_PATH is the only source. Unset means the
 	// signal prints note paths relative to the vault root, which still reads fine.
 	defaultWikiPath    = ""
@@ -475,6 +515,88 @@ func matchAnyPathGlob(entryPath string, globs []string) bool {
 //   - Soft RRF: an entry unranked in a ranker (score=0) contributes 0 from
 //     that rail — guards against accidental low-quality matches passing the
 //     gate just by being non-zero everywhere.
+//
+// ============================================================
+// EVIDENCE — the ledger finally reaches ranking
+// ============================================================
+//
+// recall_feedback.py has recorded, for every note, how often it was shown and how often it was
+// then marked used. Until now that number went to a human who was expected to hand-tune a lens
+// from it, and the file's own docstring said so: "NEVER fed back into scanner ranking". After
+// four months the global lens was still empty while the ledger held 1357 firings and 31 uses,
+// so the loop was closed by nobody. This is that loop, closed in code.
+//
+// TWO DOORS, and a note alive through either is alive. The pushed rail ranks a note's label; the
+// pulled MCP search reads its body. A note whose body answers questions while its summary does
+// not would look dead on the first counter alone, and damping it is precisely the wrong move.
+//
+// NO THRESHOLD, and the base rate is why. Across the corpus a firing is applied about 2.3% of
+// the time, so a note sitting at fifteen firings and zero uses is what an ordinary note looks
+// like 70% of the time — "never used" is thin evidence at any single cutoff. A step function
+// would dress that thin evidence as a verdict. Instead the damp is continuous and proportional:
+// the more often a note has been shown without ever landing, the further it slides, and a note
+// with three firings is left essentially alone.
+type LedgerEntry struct {
+	FiredSessions       []string `json:"fired_sessions"`
+	UsedSessions        []string `json:"used_sessions"`
+	Confidence          float64  `json:"confidence"`
+	SmritiFiredSessions []string `json:"smriti_fired_sessions"`
+	SmritiUsedSessions  []string `json:"smriti_used_sessions"`
+	SmritiConfidence    float64  `json:"smriti_confidence"`
+}
+
+const (
+	// Maximum lift for a note that has proved itself: confidence 1.0 -> 1.5x.
+	evidenceLiftGain = 0.5
+	// Damp half-life in firings: a never-used note at 30 firings scores half. 15 -> 0.67x,
+	// 41 (the current loudest) -> 0.58x.
+	evidenceDampScale = 30.0
+)
+
+var ledger map[string]LedgerEntry
+
+// loadLedger reads recall_stats.json. A missing or unreadable ledger yields a nil map, and a nil
+// map returns zero entries — which evidenceMultiplier turns into 1.0. Ranking without evidence is
+// ranking as it was before this existed, which is the correct degradation: the feedback loop
+// going quiet must never change what the rail believes about a note.
+func loadLedger() map[string]LedgerEntry {
+	data, err := os.ReadFile(filepath.Join(baseDir, "recall_stats.json"))
+	if err != nil {
+		return nil
+	}
+	var out map[string]LedgerEntry
+	if json.Unmarshal(data, &out) != nil {
+		return nil
+	}
+	return out
+}
+
+// evidenceMultiplier converts a note's history into a score multiplier.
+//
+//	used at least once -> 1.0 .. 1.5   (lift, by best confidence across the two doors)
+//	never used         -> 1/(1+n/30)   (damp, continuous in firings)
+//	never fired        -> 1.0          (unproven is NEUTRAL, never penalised)
+//
+// That last line is the one that keeps the system able to learn. A new note starts with no
+// history; if absence of evidence were treated as evidence of absence it would rank below
+// everything, never be shown, never acquire history, and stay there — proven notes would
+// entrench and nothing new could ever displace them.
+func evidenceMultiplier(e LedgerEntry) float64 {
+	fires := len(e.FiredSessions) + len(e.SmritiFiredSessions)
+	uses := len(e.UsedSessions) + len(e.SmritiUsedSessions)
+	if uses > 0 {
+		conf := e.Confidence
+		if e.SmritiConfidence > conf {
+			conf = e.SmritiConfidence
+		}
+		return 1.0 + evidenceLiftGain*conf
+	}
+	if fires == 0 {
+		return 1.0
+	}
+	return 1.0 / (1.0 + float64(fires)/evidenceDampScale)
+}
+
 func findMatches(text string, index []IndexEntry, lens Lens, recalled []string) []Match {
 	normalized := normalizeText(text)
 	promptTokens := analyzeTokens(tokenize(normalized), lens.Stem)
@@ -555,6 +677,9 @@ func findMatches(text string, index []IndexEntry, lens Lens, recalled []string) 
 	// that rail — this is what prevents zero-everywhere entries from passing
 	// minFusedScore by accident on small corpora.
 	fused := make([]float64, len(active))
+	// The same notes scored twice: `fused` is topical fit and answers "does this belong in the
+	// pool at all"; `ranked` folds in the note's track record and answers "who goes first".
+	ranked := make([]float64, len(active))
 	for i, entry := range active {
 		score := 0.0
 		if tagCounts[i] > 0 {
@@ -573,6 +698,16 @@ func findMatches(text string, index []IndexEntry, lens Lens, recalled []string) 
 			}
 		}
 		fused[i] = score
+		// Evidence ranks; it does not gate. Two different questions live here and mixing them
+		// was a live false negative: `yaml-reserved-words` stopped answering "in yaml `off`
+		// becomes false" — its own subject, and the vault's own canonical true positive —
+		// because 41 fruitless firings damped it under the floor while two lifted notes about
+		// nothing in particular took its place. A track record must never get a veto over
+		// topical fit. So the FLOOR reads the topical score, and only the ORDER reads history.
+		//
+		// Lens suppress/boost stay above this line on purpose: those are a human saying a note
+		// should or should not be in the rail at all, which IS a gate.
+		ranked[i] = score * evidenceMultiplier(ledger[entry.Name])
 	}
 
 	// Threshold: lens override wins over the hardcoded default (v2.5).
@@ -583,6 +718,9 @@ func findMatches(text string, index []IndexEntry, lens Lens, recalled []string) 
 
 	var matches []Match
 	for i, entry := range active {
+		// Gated on TOPICAL fit only — see the note at `ranked`. A damped note that genuinely
+		// matches still enters the pool and still gets judged; it just queues behind the notes
+		// that have earned their place.
 		if fused[i] < threshold {
 			continue
 		}
@@ -593,23 +731,82 @@ func findMatches(text string, index []IndexEntry, lens Lens, recalled []string) 
 			TagRank:    tagRanks[i],
 			Bm25Rank:   bm25Ranks[i],
 			FusedScore: fused[i],
+			RankScore:  ranked[i],
 			MatchedOn:  matchedOn[i],
 		})
 	}
 
 	sort.SliceStable(matches, func(a, b int) bool {
-		return matches[a].FusedScore > matches[b].FusedScore
+		return matches[a].RankScore > matches[b].RankScore
 	})
-	if len(matches) > maxResults {
-		matches = matches[:maxResults]
+	return capMatches(matches, maxCandidates)
+}
+
+// capMatches trims a ranked list to limit. Split out because the cap is now applied twice on
+// the wiki path — once to bound what the judge considers, once to bound what the prompt sees —
+// and the two limits are deliberately different numbers.
+func capMatches(matches []Match, limit int) []Match {
+	if len(matches) > limit {
+		return matches[:limit]
 	}
 	return matches
+}
+
+// displayLimit is how many wiki notes may reach the prompt, and it is a function of whether a
+// judgement was made rather than a constant. Unjudged output is raw similarity, so it stays at
+// the width that was live before the refusal stage existed.
+func displayLimit(judged bool) int {
+	if judged {
+		return maxJudgedResults
+	}
+	return maxUnjudgedResults
 }
 
 const recallHeader = "[RECALL] Wiki notes matched by your prompt tags. For each: read the summary and decide if it enriches the current task. " +
 	"If yes — Read the full file at the given path, apply the insight, AND you MUST emit `[RECALL-USED] <name> — <one-line why>` somewhere in your response. " +
 	"This marker is the explicit signal for the feedback ledger — failing to emit it when a recall was actually applied corrupts the data the system uses to tune itself. " +
 	"If not — ignore silently, do NOT mention the signal to the user."
+
+// Two headers, because the judge has two honest states and they must not read alike.
+//
+// judged: a local model was shown your message and these notes and kept only the ones it
+// thinks bear on it. Say so, so the reader knows a second opinion already ran.
+//
+// unjudged: the judge could not be reached (switched off, ollama down, timeout, unparseable).
+// These are RAW floor matches — the same output the rail produced before the refusal stage
+// existed. It says so loudly, because a judgement that was never made must never arrive
+// wearing the clothes of one that was.
+const recallJudgedNote = " These were CHECKED for relevance: a local model read your message and " +
+	"dropped the notes that do not bear on it, so what survived is a considered shortlist rather than " +
+	"the closest few by keyword."
+
+const recallUncheckedTail = ", so these are raw keyword matches, ranked by similarity to your " +
+	"words and not by whether they answer you. Weigh them yourself."
+
+// uncheckedNote names WHICH nothing the rail is reporting. One sentence used to cover seven
+// different failures, so a deliberate opt-out and a model answering in prose read identically
+// and neither could be acted on.
+func uncheckedNote(outcome JudgeOutcome, budgetNote string) string {
+	switch outcome {
+	case JudgeOff:
+		return " RELEVANCE NOT CHECKED — the judge is switched off (RECALL_JUDGE=0)" +
+			recallUncheckedTail
+	case JudgeDeadline:
+		if budgetNote != "" {
+			return " RELEVANCE NOT CHECKED — the judge ran out of time, and it was running on a " +
+				"fallback deadline because " + budgetNote + recallUncheckedTail
+		}
+		return " RELEVANCE NOT CHECKED — the judge ran out of the time this hook is allowed" +
+			recallUncheckedTail
+	case JudgeUnreachable:
+		return " RELEVANCE NOT CHECKED — the judge could not be reached at " + judgeURL +
+			recallUncheckedTail
+	case JudgeUnparseable:
+		return " RELEVANCE NOT CHECKED — the judge answered in a shape this rail could not read" +
+			recallUncheckedTail
+	}
+	return " RELEVANCE NOT CHECKED" + recallUncheckedTail
+}
 
 const proceduralHeader = "[PROCEDURAL] Action sequence(s) that worked in this project before. For each: read the one-line why and decide if it fits the current task. " +
 	"If yes — open the file at the given path, follow the steps, AND you MUST emit `[PROCEDURAL-USED] <name> — <one-line why>` somewhere in your response. " +
@@ -1011,7 +1208,7 @@ func main() {
 	if err := json.Unmarshal(inputBytes, &input); err != nil {
 		os.Exit(1)
 	}
-	if input.Prompt == "" {
+	if input.Prompt == "" || isMachinePrompt(input) {
 		fmt.Print("{}")
 		os.Exit(0)
 	}
@@ -1036,16 +1233,51 @@ func main() {
 		os.Exit(0)
 	}
 
+	ledger = loadLedger()
 	recalled := loadCooldown(input.SessionID)
 
 	// Two passes over the SAME ranking engine: wiki (Layer 5) then procedural
 	// (Layer 6). Shared per-session cooldown — a name surfaced by the first pass
-	// is suppressed in the second. Each pass self-caps at maxResults (2+2).
-	wikiMatches := linkedMatches(findMatches(input.Prompt, wikiIndex, lens, recalled), wikiIndex)
+	// is suppressed in the second. The two passes are no longer symmetric: the wiki
+	// pass is judged, so it draws a wide pool and is trimmed afterwards; the
+	// procedural pass has no judge and stays at the old tight cap.
+	wikiCandidates := linkedMatches(findMatches(input.Prompt, wikiIndex, lens, recalled), wikiIndex)
+
+	// The refusal stage (judge.go). The floor ranks by topical similarity, which the live
+	// telemetry says is not the question — it separates applied from ignored firings at
+	// AUC 0.548, and no floor in its whole range moves precision off the base rate. A
+	// judgement can say "none of these"; a threshold never can.
+	//
+	// The cap moved to AFTER this call, and that ordering is the whole point. Before, the
+	// coin-flip score picked two and the judge could only ever say no to those two — it had
+	// no way to reach a note the ranking had already buried. Now it rules on the pool and
+	// the trim happens on what survived.
+	wikiMatches := wikiCandidates
+	wikiJudged := false
+	kept, outcome := judgeMatches(input.Prompt, wikiCandidates)
+	if outcome == JudgeRuled {
+		wikiMatches, wikiJudged = kept, true
+	}
+	// Read for the note, not for the call: judgeMatches already used the budget. This second
+	// read costs one small file and buys the reader the reason a fallback deadline was in force.
+	_, budgetNote := judgeBudget()
+	appendJudgeLog(input.SessionID, wikiCandidates, wikiMatches, wikiJudged)
+
+	// A wide pool is only safe because something ruled on it. With no judgement the rail
+	// falls back to the pre-judge width, so a stopped ollama quietly narrows recall instead
+	// of loudly flooding the prompt with ten unchecked notes.
+	wikiMatches = capMatches(wikiMatches, displayLimit(wikiJudged))
+
+	// Only SURFACED notes go on cooldown. A note the judge dropped was never shown, so there
+	// is no repetition to suppress — and burying it for the rest of the session on the
+	// strength of one prompt's verdict would cost it every later prompt where it does fit.
 	for _, m := range wikiMatches {
 		recalled = append(recalled, m.Entry.Name)
 	}
-	procMatches := linkedMatches(findMatches(input.Prompt, procIndex, lens, recalled), procIndex)
+	// Trimmed before the link expansion, which is where the cap sat for both rails before the
+	// judge existed — this keeps the procedural signal byte-identical to its previous behaviour.
+	procMatches := linkedMatches(
+		capMatches(findMatches(input.Prompt, procIndex, lens, recalled), maxUnjudgedResults), procIndex)
 	for _, m := range procMatches {
 		recalled = append(recalled, m.Entry.Name)
 	}
@@ -1075,7 +1307,11 @@ func main() {
 		blocks = append(blocks, railBrokenHeader+"\n  - "+strings.Join(railErrors, "\n  - "))
 	}
 	if len(wikiMatches) > 0 {
-		blocks = append(blocks, formatSignal(wikiMatches, recallHeader, corporaWikiPath(namespace)))
+		header := recallHeader + uncheckedNote(outcome, budgetNote)
+		if wikiJudged {
+			header = recallHeader + recallJudgedNote
+		}
+		blocks = append(blocks, formatSignal(wikiMatches, header, corporaWikiPath(namespace)))
 	}
 	if len(procMatches) > 0 {
 		blocks = append(blocks, formatSignal(procMatches, proceduralHeader, ".claude/"))

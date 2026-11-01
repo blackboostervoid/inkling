@@ -1,7 +1,9 @@
 name: ci
 
-# Three questions, in the order they can fail:
+# Four questions, in the order they can fail:
 #   does the scanner still behave      -> go test
+#   do the Python hooks keep their      -> hook unit tests
+#   promises
 #   would a clone contain what the      -> check_shipped
 #   install contract promises
 #   does a fresh install actually work  -> acceptance, in a throwaway sandbox
@@ -36,6 +38,14 @@ jobs:
           test ! -s /tmp/unformatted || (echo "::error::gofmt found unformatted files" && exit 1)
           go vet ./...
           go test ./...
+
+      - name: Hook unit tests
+        run: |
+          python3 hooks/recall/test_semantic_judge_field.py
+          python3 hooks/recall/test_recipe_blocks.py
+          python3 hooks/recall/test_compile_wiki_union.py
+          python3 hooks/recall/test_recall_evidence.py
+          python3 skills/compile/scripts/test_compile_judge_schema.py
 
       - name: Shipped tree matches the install contract
         run: python3 tests/check_shipped.py

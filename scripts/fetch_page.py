@@ -32,11 +32,11 @@ what came back, or the script exits 2 and says so. A fetch that cannot show the 
 zero sources, however articulate its prose looked.
 
 Usage:
-    py fetch_page.py <url>
-    py fetch_page.py <url> --expect "KINGSEVEN"      # presence gate; exit 2 when absent
-    py fetch_page.py <url> --text                    # include full visible text
-    py fetch_page.py <url> --state                   # include embedded app state
-    py fetch_page.py <url> --save out.html           # keep the raw HTML for a second pass
+    python3 fetch_page.py <url>
+    python3 fetch_page.py <url> --expect "KINGSEVEN"      # presence gate; exit 2 when absent
+    python3 fetch_page.py <url> --text                    # include full visible text
+    python3 fetch_page.py <url> --state                   # include embedded app state
+    python3 fetch_page.py <url> --save out.html           # keep the raw HTML for a second pass
 """
 
 from __future__ import annotations

@@ -1,8 +1,17 @@
 ---
 name: capture-review
 description: Review the staged capture inbox — durable moments the capture harvester caught this/last session — and promote the real ones to their home (wiki / memory / rejected-list) or drop the rest. Triggers on - "/capture-review", "review the inbox", "check capture inbox", "capture review".
-allowed-tools: Read, Write, Edit, Glob, Grep
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash, mcp__inkling__vault_search, mcp__inkling__vault_read
 ---
+
+`[!]` **Before writing ANY note into the vault, obey `VAULT_CONTRACT.md`.**
+The rule skipped most: **search before you write, and never survey the vault by `Glob`** — reading
+a whole corpus to place one paragraph costs hundreds of thousands of tokens, and it is the measured
+reason the write path is a search rather than a browse. One `mcp__inkling__vault_search` (or
+`python3 "$CLAUDE_CONFIG_DIR/hooks/recall/semantic.py" search "<the finding>" -k 8 --rerank` where
+there is no MCP) decides CREATE-vs-APPEND. A duplicate note is worse than a missing one: two
+records of one thing drift apart and then neither is trusted.
+
 
 # Capture Review — promote or drop staged candidates
 
@@ -32,11 +41,6 @@ Group the survivors by their suggested home:
 | `pattern` | code wiki (`$CLAUDE_WIKI_PATH/`) as a `pattern` page | stage into `raw/` and run `/compile` — that is the only door into the corpus, and it is what supplies the frontmatter |
 | `rejected` | `<cwd>/.claude/research-rejected.md` if it exists, else a `rejected` memory note | append the approach + the reason it was ruled out |
 
-**Never hand-write a page straight into the vault.** `/compile` is what gives a note its `tags`
-and its `summary`, and it checks that the two share at least two keywords. A page written around it
-lands in the corpus ranking against an empty document: present, findable by nothing, and silent
-about it. Staging into `raw/` costs one extra step and closes that hole.
-
 ## Step 3 — Present + confirm
 
 Show the survivors grouped, with your promote target for each, and the ones you propose to drop:
@@ -63,10 +67,25 @@ approval — the wiki write contract (single-source, graph-first, atomicity) sti
   frontmatter, or the `/compile` write path for wiki pages). Preserve the quote as the seed; expand
   into a proper note — do not just paste the raw line.
 - **Drop:** no write.
-- **Both:** remove the resolved candidate line from `capture_inbox.md`. A resolved candidate leaves
-  the inbox entirely — the remaining `- [` lines are the still-pending queue the SessionStart nudge
-  counts. Delete now-empty `## date · session` headers too. If the file ends up with zero
-  candidates, leave the header comment block (or delete the file — either is fine).
+- **Both:** mark the resolved candidate line by appending ` <!--resolved-->` to it, so it keeps
+  feeding dedup while dropping out of the pending count. The two are different questions and the
+  nudge asks only the second one:
+
+  ```
+  - [rejected] "the quote as it was staged"                      <- pending, the nudge counts it
+  - [rejected] "the quote as it was staged" <!--resolved-->      <- judged, still suppresses a re-stage
+  ```
+
+  Deleting the line instead is also correct and reads as zero pending — but the quote then stops
+  suppressing a re-stage of itself, and the record of what you dropped and why goes with it.
+  `[!]` **Whichever you choose, do it to the LINE.** Writing a prose review section below the
+  candidates and leaving the lines bare is what made one project's nudge announce "7 staged
+  candidates await review" every session for weeks over an inbox where all seven had a written
+  disposition. Three consecutive reviews recorded that the counter was lying and none marked the
+  lines, because nothing in this step told them to.
+
+  Delete now-empty `## date · session` headers if you deleted their lines. If the file ends up with
+  zero pending candidates, leave the header comment block and the record of what was reviewed.
 
 ## Step 5 — Report
 

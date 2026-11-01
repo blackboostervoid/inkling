@@ -2,7 +2,7 @@
 # @role: gather skill principles + CLAUDE.md section index for the rules-distiller mode (Layer 6 write side, rules variant)
 # @deps: (stdlib only — zero third-party, runs on x64 and Windows ARM via `py`)
 # @used-by: procedural-distiller (rules mode), procedural skill (rules mode)
-# @doc: lab/akasha_engine/6_procedural/CONCEPT.md#rules-mode
+# @doc: RECIPE_FORMAT.md#the-fields
 """
 Read half of the rules-distiller MODE — the sibling of inputs.py for the rules variant of
 Layer 6. Where inputs.py gathers BEHAVIORAL artifacts (sessions) to mine procedural recipes,

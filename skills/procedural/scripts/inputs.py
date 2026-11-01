@@ -2,7 +2,7 @@
 # @role: gather already-curated artifacts (HANDOFF Key Decisions + agent_digests + /plan spec) for the distiller
 # @deps: (stdlib only — zero third-party, runs on both x64 and Windows ARM via `py`)
 # @used-by: distill.py (write side of Layer 6 procedural memory)
-# @doc: lab/akasha_engine/6_procedural/CONCEPT.md#the-distiller--write-side
+# @doc: RECIPE_FORMAT.md#one-recipe
 """
 The distiller's read half. Gathers the THREE already-curated inputs the distiller is
 allowed to see — never the raw transcript. This is the central design move: the distiller
@@ -13,7 +13,7 @@ Inputs:
                               (`## Session NN (latest)`) in <root>/.claude/HANDOFF.md
   2. agent_digests[]        — subagent summaries across <root>/.claude/code_index/*.json,
                               most-recent first (capped), each already 1-3 sentences
-  3. /plan spec (optional)  — an explicit --spec path (passed by the verifier-OK trigger),
+  3. /plan spec (optional)  — an explicit --spec path (passed by the step that finished the plan),
                               else the most-recently-modified documentation/to_do/**/plan_*.md
 
 Pure file reading, no LLM, no third-party deps. `gather()` returns a bundle dict that
@@ -129,7 +129,7 @@ def main() -> int:
     print("=== KEY DECISIONS (latest session) ===")
     print(bundle["key_decisions"] or "(none)")
     print(f"\n=== AGENT DIGESTS ({len(bundle['digests'])}) ===")
-    for line in bundle["digests"][:10]:
+    for line in bundle["digests"]:
         print("  - " + line)
     print(f"\n=== /plan SPEC ===\n{bundle['spec_path'] or '(none)'}  ({len(bundle['spec'])} chars)")
     return 0

@@ -31,7 +31,7 @@ Output: <out>/ch_NN.md per reading unit + <out>/meta.json.
 The main orchestration context reads ONLY meta.json; unit bodies are for haiku scouts.
 
 Invoke with the `py` launcher (Python 3.14):
-    py parse_book.py <book-path> --out <dir>
+    python3 parse_book.py <book-path> --out <dir>
 """
 
 import argparse
@@ -492,7 +492,8 @@ def main() -> int:
     except ImportError as exc:
         print(f"[ERROR] Missing dependency for this source: {exc}. "
               f"Books: pymupdf4llm / ebooklib + beautifulsoup4. "
-              f"YouTube: youtube-transcript-api (py -m pip install youtube-transcript-api).")
+              f"YouTube: youtube-transcript-api "
+              f"(python3 -m pip install youtube-transcript-api).")
         return 1
 
     print(f"[SUCCESS] {meta.title} ({meta.source_format}) -> {len(meta.chapters)} reading units")

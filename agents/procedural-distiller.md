@@ -3,6 +3,7 @@ name: procedural-distiller
 description: Distills action-sequences that RECURRED across a project's sessions into procedural-memory candidates (the weekly procedural batch). Reads only curated artifacts (HANDOFF history + agent_digests), never raw transcripts. Runs on Haiku, no API key. Invoked by /procedural batch. A second "rules mode" (invoked by /procedural rules) instead mines SKILLS for cross-cutting principles into CLAUDE.md rule candidates.
 tools: Read, Glob, Grep, Bash, Write
 model: haiku
+effort: low
 ---
 
 # Procedural Distiller — Weekly Batch (Layer 6 write side)

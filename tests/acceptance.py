@@ -156,8 +156,17 @@ class Sandbox:
 
 # -------------------------------------------------------------------- checks
 
+def git_for_windows_bash_or_plain():
+    if os.name != "nt":
+        return "bash"
+    for parent in Path(shutil.which("git") or ".").parents:
+        if (parent / "bin" / "bash.exe").is_file():
+            return str(parent / "bin" / "bash.exe")
+    return "bash"
+
+
 def check_build(sb):
-    r = subprocess.run(["bash", str(sb.config / "hooks" / "build_hooks.sh")],
+    r = subprocess.run([git_for_windows_bash_or_plain(), str(sb.config / "hooks" / "build_hooks.sh")],
                        capture_output=True, text=True, encoding="utf-8",
                        errors="replace", env=sb.env())
     ok = sb.bin("recall").is_file() and sb.bin("capture").is_file()
@@ -211,7 +220,7 @@ def check_recipe_format_warning(sb):
     sb.run([PYTHON, sb.script("hooks", "recall", "compile_procedural.py"),
             "--dir", str(sb.project / ".claude")])
     check("a malformed recipe file warns instead of passing quietly",
-          "0 active recipes" in r.stderr, r.stderr.strip()[:120] or "<no warning>")
+          "0 active recipes" in r.stdout + r.stderr, (r.stdout + r.stderr).strip()[:120] or "<no warning>")
 
 
 def check_rail_broken(sb):

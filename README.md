@@ -167,6 +167,21 @@ That builds a throwaway sandbox in a temporary directory, exercises both rails i
 
 You need Python 3.9 and a Go toolchain. Go builds the two hooks that run on every prompt, which is why they are not written in Python.
 
+### Asking the vault directly (optional)
+
+The hooks read only a note's name, tags and summary. To search inside note bodies, and to let the search answer "the vault has nothing on this", add the MCP server. It needs Node 18 or newer and the embedding layer described in `AGENTS.md`.
+
+```sh
+cp -r mcp "$CONFIG/"
+bash "$CONFIG/mcp/build.sh"
+claude mcp add inkling --scope user \
+  --env CLAUDE_WIKI_PATH="/path/to/your/ObsidianVault/" \
+  --env CLAUDE_RERANK_MODEL="your-local-ollama-model" \
+  -- node "$CONFIG/mcp/dist/index.js"
+```
+
+Your agent then gets `vault_search`, `vault_read`, `vault_neighbors`, `vault_capture` and `vault_link`. Without `CLAUDE_RERANK_MODEL` the search still works, and every answer says that relevance was not checked. The rest of this repository runs without the server. Details are in `mcp/README.md`.
+
 ## Writing notes that can be found
 
 One rule matters more than the rest: **retrieval reads the filename, the tags and the `summary`, and never the body.**

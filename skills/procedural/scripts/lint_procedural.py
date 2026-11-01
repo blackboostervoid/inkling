@@ -1,8 +1,8 @@
 # @module: lint_procedural
 # @role: review/promote/reject procedural candidates — the human curation gate (Layer 6)
-# @deps: (stdlib only — zero third-party; calls compile_procedural.py via subprocess on promote)
+# @deps: hooks/recall/recipe_blocks (the block format, by path); stdlib; runs compile_procedural.py via subprocess on promote
 # @used-by: the /procedural skill (interactive driver)
-# @doc: lab/akasha_engine/6_procedural/CONCEPT.md#approval-gate
+# @doc: RECIPE_FORMAT.md#two-checks-before-a-recipe-is-done
 """
 Mechanical core of the procedural curation gate. The thin /procedural skill drives this:
   list    — show every candidate with evidence (source-session count), conflict flags vs
@@ -37,11 +37,18 @@ Zero third-party deps (runs across two machines). Invoke via `py`.
 
 import argparse
 import json
-import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+# One block grammar for every reader, in infrastructure: this file carried its own copy of the
+# positional pattern, and one malformed block hid a month of recipes from the conflict check,
+# auto-archive and `archive <slug>` at the same time as from the compiler.
+PROCEDURAL_HOOKS = Path(__file__).resolve().parents[3] / "hooks" / "recall"
+sys.path.insert(0, str(PROCEDURAL_HOOKS))
+from recipe_blocks import (is_compilable, parse_blocks, parse_frontmatter,  # noqa: E402
+                           span_hides, unreadable_text)
 
 AUTO_PROMOTE_MIN_SESSIONS = 1     # auto-promote gate: >=N sessions + no conflict -> promote unattended (aggressive default: 1)
 AUTO_ARCHIVE_MIN_FIRES = 3        # auto-archive gate: fired >=N times AND used==0 -> retire unattended (provably dead)
@@ -50,26 +57,13 @@ KEYWORD_OVERLAP_CONFLICT = 0.5    # keyword set overlap that means "same domain"
 TRIGGER_JACCARD_SAME = 0.85       # near-identical trigger = the SAME recipe seen again, not a rival
 
 
-BLOCK_PATTERN = re.compile(
-    r"^---[ \t]*$\n(.*?)^---[ \t]*$\n(.*?)(?=^---[ \t]*$|\Z)",
-    re.MULTILINE | re.DOTALL,
-)
 ACTIVE_HEADER = "# Procedural memory\n\nActive action-sequences. Compiled to JSON and surfaced as `[PROCEDURAL]`.\n"
 ARCHIVE_HEADER = "# Procedural archive\n\nRejected or decayed recipes. Kept for possible re-promotion.\n"
 
 
 # ============================================================
-# LIGHT PARSE (read-only, for list + conflict)
+# LIGHT PARSE (read-only, for list + conflict) - the frontmatter reader is recipe_blocks'
 # ============================================================
-def parse_frontmatter(fm_text: str) -> dict:
-    fm = {}
-    for line in fm_text.splitlines():
-        if ":" in line:
-            key, _, val = line.partition(":")
-            fm[key.strip().lower()] = val.strip()
-    return fm
-
-
 def parse_list_field(raw: str) -> list:
     return [x.strip() for x in raw.strip().strip("[]").split(",") if x.strip()]
 
@@ -79,7 +73,7 @@ def read_recipes(path: Path) -> list:
         return []
     text = path.read_text(encoding="utf-8")
     out = []
-    for fm_text, _ in BLOCK_PATTERN.findall(text):
+    for _, _, fm_text, _ in parse_blocks(text):
         fm = parse_frontmatter(fm_text)
         if fm.get("slug"):
             out.append({
@@ -126,16 +120,42 @@ def find_conflicts(candidate: dict, active: list) -> list:
 # BLOCK SURGERY (raw text — extract / move / flip status)
 # ============================================================
 def extract_block(text: str, slug: str) -> tuple:
-    for m in BLOCK_PATTERN.finditer(text):
-        if parse_frontmatter(m.group(1)).get("slug") == slug:
-            block = text[m.start():m.end()].rstrip() + "\n"
-            remaining = (text[:m.start()] + text[m.end():])
-            return block, remaining
+    for start, end, fm_text, _ in parse_blocks(text):
+        if parse_frontmatter(fm_text).get("slug") != slug:
+            continue
+        # `[!]` A block no reader parses sits inside the span above it, so moving this block would
+        # carry that hidden recipe into the archive or the active file under this slug's status.
+        hidden = span_hides(text, start, end)
+        if hidden:
+            print(f"[ERROR] '{slug}' spans text no reader parses ({', '.join(hidden)}); refusing to "
+                  f"move it, because that text would move with it. Fix the hidden block's shape first.")
+            return "", text
+        return text[start:end].rstrip() + "\n", text[:start] + text[end:]
     return "", text
 
 
+def unreadable_candidates(path: Path) -> list:
+    """Candidate text in a shape no reader parses. It never promotes, and until 2026-09-14 nothing
+    said so: sessions answering the Stop-hook ask wrote fields as bullets or under a heading, and
+    those blocks sat in the file indefinitely while `list` reported no pending candidates."""
+    if not path.is_file():
+        return []
+    lost, stray = unreadable_text(path.read_text(encoding="utf-8"))
+    return lost + stray
+
+
+def report_unreadable_candidates(path: Path, prefix: str) -> None:
+    lost = unreadable_candidates(path)
+    if lost:
+        print(f"{prefix} {path.name} holds candidate text no reader parses, so it never promotes: "
+              f"{', '.join(lost)}. Rewrite each as a `---` line, `slug:` `trigger:` `keywords:` "
+              f"`status: candidate` `source_sessions:`, a closing `---`, then the steps - or merge it "
+              f"into its target recipe by hand.")
+
+
 def set_status(block: str, status: str) -> str:
-    return re.sub(r"(?m)^status:.*$", f"status: {status}", block)
+    # count=1: the first `status:` line is the frontmatter's; any later one belongs to body text.
+    return re.sub(r"(?im)^status:.*$", f"status: {status}", block, count=1)
 
 
 def find_same_recipe(candidate: dict, active: list) -> str:
@@ -163,16 +183,16 @@ def merge_sessions(block: str, new_sessions: list) -> tuple:
     if not added:
         return block, 0
     merged = ", ".join(have + added)
-    return re.sub(r"(?m)^source_sessions:.*$", f"source_sessions: [{merged}]", block), len(added)
+    return re.sub(r"(?m)^source_sessions:.*$", f"source_sessions: [{merged}]", block, count=1), len(added)
 
 
 def merge_sessions_in_file(text: str, slug: str, new_sessions: list) -> tuple:
     """In-place fold, so a reinforced recipe keeps its position in the file."""
-    for m in BLOCK_PATTERN.finditer(text):
-        if parse_frontmatter(m.group(1)).get("slug") != slug:
+    for start, end, fm_text, _ in parse_blocks(text):
+        if parse_frontmatter(fm_text).get("slug") != slug:
             continue
-        merged, added = merge_sessions(text[m.start():m.end()], new_sessions)
-        return (text[:m.start()] + merged + text[m.end():], added) if added else (text, 0)
+        merged, added = merge_sessions(text[start:end], new_sessions)
+        return (text[:start] + merged + text[end:], added) if added else (text, 0)
     return text, 0
 
 
@@ -185,8 +205,9 @@ def append_block(path: Path, block: str, header: str) -> None:
 # RECOMPILE (Layer 1 — after a promote, force-rebuild the active JSON)
 # ============================================================
 def recompile(claude_dir: Path) -> None:
-    config_dir = os.environ.get("CLAUDE_CONFIG_DIR", "")
-    compiler = Path(config_dir) / "hooks" / "recall" / "compile_procedural.py"
+    # Found beside the grammar this file imports, not through CLAUDE_CONFIG_DIR: two lookups can
+    # point at two trees when a check swaps the config dir.
+    compiler = PROCEDURAL_HOOKS / "compile_procedural.py"
     if not compiler.is_file():
         print(f"[WARNING] compiler not found at {compiler}; SessionStart will refresh instead.")
         return
@@ -201,6 +222,7 @@ def recompile(claude_dir: Path) -> None:
 # COMMANDS
 # ============================================================
 def cmd_list(claude_dir: Path) -> int:
+    report_unreadable_candidates(claude_dir / "procedural_candidates.md", "[WARNING]")
     candidates = read_recipes(claude_dir / "procedural_candidates.md")
     active = read_recipes(claude_dir / "procedural.md")
     if not candidates:
@@ -234,18 +256,53 @@ def cmd_move(claude_dir: Path, slug: str, to_active: bool) -> int:
     if not block:
         print(f"[ERROR] No candidate with slug '{slug}'.")
         return 1
-    cand_path.write_text(remaining.rstrip() + "\n", encoding="utf-8")
     if to_active:
-        append_block(claude_dir / "procedural.md", set_status(block, "active"), ACTIVE_HEADER)
+        if not promote_block(claude_dir, slug, block, remaining):
+            print(f"[ERROR] '{slug}' would not compile back from procedural.md (a missing trigger, a "
+                  f"status the flip did not reach, or a broken block above it). Both files restored; "
+                  f"fix the shape by hand.")
+            return 1
         print(f"[SUCCESS] Promoted '{slug}' -> procedural.md")
         recompile(claude_dir)
     else:
+        cand_path.write_text(remaining.rstrip() + "\n", encoding="utf-8")
         append_block(claude_dir / "procedural_archive.md", set_status(block, "rejected"), ARCHIVE_HEADER)
         print(f"[SUCCESS] Rejected '{slug}' -> procedural_archive.md")
     return 0
 
 
+def is_readable(path: Path, slug: str) -> bool:
+    """Whether the ACTIVE file would compile a recipe with this slug. Parsed is not enough: a block
+    with no trigger, or a status the flip did not reach, parses and never surfaces."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return any(parse_frontmatter(head).get("slug") == slug and is_compilable(parse_frontmatter(head))
+               for _, _, head, _ in parse_blocks(text))
+
+
+def promote_block(claude_dir: Path, slug: str, block: str, remaining: str) -> bool:
+    """Move one candidate block into procedural.md, and put both files back when it does not compile
+    there. Until 2026-09-14 the candidate was removed first and never restored, so a failed promotion
+    left `list` answering "No pending candidates" over a recipe nobody would ever see."""
+    cand_path, active_path = claude_dir / "procedural_candidates.md", claude_dir / "procedural.md"
+    cand_before = cand_path.read_text(encoding="utf-8")
+    active_before = active_path.read_text(encoding="utf-8") if active_path.is_file() else None
+    cand_path.write_text(remaining.rstrip() + "\n", encoding="utf-8")
+    append_block(active_path, set_status(block, "active"), ACTIVE_HEADER)
+    if is_readable(active_path, slug):
+        return True
+    cand_path.write_text(cand_before, encoding="utf-8")
+    if active_before is None:
+        active_path.unlink()
+    else:
+        active_path.write_text(active_before, encoding="utf-8")
+    return False
+
+
 def cmd_auto_promote(claude_dir: Path, min_sessions: int) -> int:
+    report_unreadable_candidates(claude_dir / "procedural_candidates.md", "[PROCEDURAL-AUTO]")
     candidates = read_recipes(claude_dir / "procedural_candidates.md")
     if not candidates:
         return 0  # fast no-op: nothing pending (the common SessionStart case)
@@ -254,6 +311,7 @@ def cmd_auto_promote(claude_dir: Path, min_sessions: int) -> int:
     active_path = claude_dir / "procedural.md"
     promoted = []
     reinforced = []
+    unreadable = []
     for c in candidates:
         # A re-sighting is EVIDENCE, not a rival. Before the conflict check: if the
         # distiller produced essentially the same recipe again, fold its session id into
@@ -278,10 +336,14 @@ def cmd_auto_promote(claude_dir: Path, min_sessions: int) -> int:
         block, remaining = extract_block(cand_path.read_text(encoding="utf-8"), c["slug"])
         if not block:
             continue
-        cand_path.write_text(remaining.rstrip() + "\n", encoding="utf-8")
-        append_block(claude_dir / "procedural.md", set_status(block, "active"), ACTIVE_HEADER)
+        if not promote_block(claude_dir, c["slug"], block, remaining):
+            unreadable.append(c["slug"])
+            continue
         active.append(c)
         promoted.append(c["slug"])
+    if unreadable:
+        print(f"[PROCEDURAL-AUTO] [ERROR] not promoted, because procedural.md would not compile them "
+              f"back: {', '.join(unreadable)}. Both files restored; fix each block's shape by hand.")
     if promoted or reinforced:
         recompile(claude_dir)
     if promoted:
@@ -289,8 +351,8 @@ def cmd_auto_promote(claude_dir: Path, min_sessions: int) -> int:
               f"Now surfaced as [PROCEDURAL]. Review/undo any via /procedural archive <slug>.")
     if reinforced:
         print(f"[PROCEDURAL-AUTO] Reinforced {len(reinforced)} recipe(s) with a repeat sighting: "
-              f"{', '.join(sorted(set(reinforced)))}. Their support tag rises in the next "
-              f"[PROCEDURAL] block — a recipe seen twice is a pattern, not a one-off.")
+              f"{', '.join(sorted(set(reinforced)))}. Their support tag rises at the next "
+              f"corpus build — a recipe seen twice is a pattern, not a one-off.")
     return 0
 
 

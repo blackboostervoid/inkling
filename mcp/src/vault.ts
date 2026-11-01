@@ -76,12 +76,18 @@ export interface Entry {
   related?: string[];
 }
 
-export function loadCompiled(corpus: string): Entry[] {
+// One place that knows where a corpus is compiled, because two now need it: the reader and the
+// patch `addRelated` applies after it writes a link.
+export function compiledPath(corpus: string): string {
   const file =
     corpus === "" || corpus === "code" || corpus === "default"
       ? "index_compiled.json"
       : `index_compiled_${corpus}.json`;
-  const full = path.join(recallDir(), file);
+  return path.join(recallDir(), file);
+}
+
+export function loadCompiled(corpus: string): Entry[] {
+  const full = compiledPath(corpus);
   if (!existsSync(full)) {
     throw new VaultError(
       `no compiled index at ${full} - run compile_wiki_index.py (SessionStart does it for you).`
@@ -283,6 +289,24 @@ export async function addRelated(noteRef: string, target: string): Promise<strin
     updated = `${block.trimEnd()}\nrelated:\n  - ${link}`;
   }
   await writeFile(full, text.replace(fm[0], `---\n${updated}\n---`), "utf-8");
+
+  // THE WRITE AND THE READ SAT ON OPPOSITE SIDES OF A ONCE-PER-SESSION COMPILE. The note gained
+  // the edge on disk immediately, but `vault_neighbors` walks the COMPILED index, which is built
+  // at SessionStart - so a link written now stayed invisible to retrieval until the next session
+  // while this function reported success. Measured 2026-09-10: index compiled 04:12, link written
+  // 05:22, neighbours still returned only the four older edges. The compiled row is patched here
+  // so the edge is live in the session that created it; the next compile rewrites the file from
+  // the notes themselves, so this patch cannot rot into a claim the vault does not carry.
+  note.related = [...(note.related ?? []), link];
+  try {
+    await writeFile(compiledPath("code"), JSON.stringify(entries, null, 2), "utf-8");
+  } catch (err) {
+    // The note IS linked; only the in-session visibility is lost. Say that instead of failing a
+    // write that already succeeded, and name the recovery - "run the compile" is not something a
+    // caller can infer from a stack trace.
+    return `${note.path} now links to ${link} (on disk; the compiled index was not updated - ` +
+      `${String(err)} - so retrieval sees this edge after the next SessionStart compile)`;
+  }
   return `${note.path} now links to ${link}`;
 }
 
@@ -300,6 +324,17 @@ export interface SearchHit {
   path: string;
   name: string;
   summary: string;
+  /**
+   * Headings of the body sections that matched. Since 2026-08-06 the index is built at H2-section
+   * granularity, so a hit can come from a paragraph inside a note whose summary is about something
+   * else entirely - and naming the section is what tells the caller where to look.
+   *
+   * Empty means the note matched on its own label (name/tags/summary), which is what every hit
+   * used to be.
+   */
+  matched?: string[];
+  /** "body" | "summary" - which half pulled the note in. */
+  matched_in?: string;
 }
 
 export interface SearchResult {
@@ -307,6 +342,7 @@ export interface SearchResult {
   corpus: string;
   model: string;
   judge: string | null;
+  judge_asked?: string | null;
   /** hits | rejected | no-index | unavailable - four different facts, never flattened to "empty". */
   verdict: string;
   note: string | null;

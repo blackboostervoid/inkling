@@ -1,301 +1,207 @@
 ---
 name: compile
-description: Compile raw documents from Obsidian vault into structured wiki pages. Merges into existing pages or creates new ones. Triggers on - "/compile", "process raw", "compile my notes", "turn raw into wiki pages".
+description: Compile raw documents from Obsidian vault into structured wiki pages. Merges into existing pages or creates new ones. Triggers on - "/compile", "process raw", "build the wiki".
 context: fork
-allowed-tools: Read, Write, Edit, Glob, Grep, Agent, WebFetch, WebSearch, Bash
+allowed-tools: Read, Write, Edit, Glob, Grep, Agent, WebFetch, WebSearch, Bash, mcp__inkling__vault_search, mcp__inkling__vault_read, mcp__inkling__vault_neighbors
 ---
 
 # Compile — Raw to Wiki
 
-Compiles unprocessed documents from `$CLAUDE_WIKI_PATH/raw/` into structured LLM wiki pages.
-When raw files reference external sources (GitHub repos, docs), fetches additional context to enrich wiki pages.
-
-Hard principle: **core content of existing pages is immutable by default**. The skill freely standardizes form (frontmatter, tags, summary, title, section ordering, markdown hygiene), but any change to actual technical text requires explicit user approval.
+Compiles staged documents from the vault's `raw/` into structured wiki notes. **Existing prose is
+immutable by default:** form is standardized freely, technical text never without approval.
 
 ---
 
-## Step 1 — Load current state
+## Mode — interactive (default) or `--auto`
 
-1. Know what pages exist: `Glob` the content folders (`apis/ patterns/ tools/ concepts/ discoveries/ research/`) — each note's filename is its slug, its frontmatter carries tags + summary. The code wiki is **INDEX-less** (retired): the note's frontmatter IS the source; the compiler globs notes into the recall corpus. Do NOT read or write `INDEX.md`.
-2. List files in `$CLAUDE_WIKI_PATH/raw/` (top level only — do not recurse).
-3. If no unprocessed files → report "Nothing to compile" and stop.
+Two entries, one pipeline. **The local judge runs first on BOTH** (A0a): it triages every staged
+item to `new` / `append <note>` / `reject`. Only what happens next differs.
 
-## Step 2 — Analyze raw files
+- **`/compile --auto`** — you override what the judge got wrong, write, and close. §A is the whole
+  protocol.
+- **`/compile`** — the same, then you present the plan to a person, who holds
+  `references/interactive.md`'s Step 2 and Step 6 gates. The judge changes what you bring to that
+  conversation, not who decides it.
 
-For each file in `raw/`:
-1. Read the file.
-2. Extract entities and concepts (APIs, patterns, tools, techniques).
-3. For each entity, decide UPDATE vs CREATE:
-   - Match by note filename/slug across the content folders (`Glob`); if uncertain, grep `tags:` in candidate frontmatter, or run `python3 "$CLAUDE_CONFIG_DIR/hooks/recall/semantic.py" search "<entity>"` to find an existing page by meaning (name may differ).
-4. Classify mixed content: one raw file may produce several entity actions.
+`--auto` is narrower on purpose: only machine-staged `obs-*.md`, add-only, answering to a written
+bar instead of a person. Everything that makes a note retrievable is identical — none of it ever
+needed a human.
 
-Present the compilation plan to the user:
+### A queue of only `obs-*.md` takes §A even without the flag
 
+**Owner ruling, 2026-08-16: the agent must stop asking about everything. It decides for itself -
+turn a raw candidate into a new note in the graph, append it to an existing note, or drop it.**
+Every file at the top of `raw/` an `obs-*.md` → run §A, present no plan. The gate is
+aimed, not lowered: it guards changes that destroy what a person wrote, and **A2** is add-only.
+Bare `/compile` returns the moment a HUMAN-dropped file is in the queue — that person is asking to
+be consulted; a Stop hook staging a digest is not.
+
+---
+
+# §A. `--auto` — the unattended path
+
+## A0. What this mode may touch
+
+**Only `raw/obs-*.md`** — staged by `hooks/capture/observe.py`, each item labelled with the kind
+that produced it. Any other file there is a HUMAN's and asks for the interactive pass; leave it.
+None → report `nothing staged` and stop, a normal outcome.
+
+## A0a. Two commands run this mode
+
+```bash
+JUDGE="${COMPILE_JUDGE_JSON:-$TMP/judge.json}"
+[ -n "${COMPILE_JUDGE_JSON:-}" ] || py "$CLAUDE_CONFIG_DIR/skills/compile/scripts/compile_judge.py" --json > "$JUDGE"
+py "$CLAUDE_CONFIG_DIR/skills/compile/scripts/compile_apply.py" --plan --judge-json "$JUDGE"
 ```
-Found N files in raw/:
-- file1.md → UPDATE apis/anthropic-api.md (new info about X)
-- file2.md → CREATE patterns/new-pattern.md
-- file3.md → UPDATE + CREATE (multiple entities)
 
-Proceed? (yes/no)
+`[!]` **`COMPILE_JUDGE_JSON` is set when the nightly runner booted you; re-running the judge over it
+is a defect, not a refresh** — the document you were shown must be the one that gets archived, and
+two runs of a temperature-0 model only USUALLY agree.
+
+**The plan is your whole input.** Survivors come in full; drops come as ONE LINE each, kind first
+— a bar error is overturnable on sight and the full text is still in `raw/`. A drop claiming a
+DUPLICATE is NOT yours: the judge re-reads the candidate's BODY for that claim, and a one-line
+reason is the summary-shaped evidence it was measured to fail on.
+
+**The split is by whether PROSE IS PRODUCED**, not by how important a step looks: `reject`, the
+archive and the tally are mechanical. On a real queue, 14 of 17 items were drops.
+
+Then, after the notes are written and the grounding gate has run (**A4** steps 5-6):
+
+```bash
+py "$CLAUDE_CONFIG_DIR/skills/compile/scripts/compile_apply.py" --close    --judge-json "$JUDGE" --kept <note> <note> --left <doc-the-gate-refused>
 ```
 
-Wait for confirmation before continuing.
+`[!]` It **refuses to archive before the log is written**, and **holds back any document carrying
+an item the judge could not rule on** — archiving that deletes the evidence for a decision nobody
+made. It DECIDES NOTHING; a rule of its own belongs in the judge, where a second look can overturn
+it.
 
-## Step 2.5 — Web enrichment (optional)
+### What the judge itself does
 
-If raw files reference GitHub repos, APIs, or external docs:
-1. Extract URLs from raw files.
-2. `WebFetch` each URL (or delegate batch to an `Agent`).
-3. Use fetched content to ground the wiki page in primary sources instead of marketing-style summaries from raw text.
+Documented in the script that performs it — `scripts/compile_judge.py`, header and `second_look`.
+Nothing here restates it: a restatement is a second copy that drifts.
 
-## Step 3 — Build tag vocabulary
+## A1. The bar — the surprisal rule
 
-Before writing any frontmatter, build the vault's existing tag vocabulary so new pages reuse canonical tags instead of minting synonyms.
+One question per item, asked before composing anything:
 
-1. Build the canonical tag set from existing notes' frontmatter `tags` — `Grep` the `tags:` field across `$CLAUDE_WIKI_PATH/**/*.md`, or read the compiled corpus `$CLAUDE_CONFIG_DIR/hooks/recall/index_compiled.json` (each entry lists its tags — fastest, already aggregated).
-2. Build an in-memory set: `canonical_tags = {every tag already in use}`.
-3. For each proposed new tag:
-   - Exact match (case-insensitive, trimmed) → reuse canonical form.
-   - Obvious synonym or transliteration of an existing tag → reuse the existing one.
-   - Truly new concept → add to proposed set, will become canonical after write.
-4. Report at the top of the diff preview:
-   ```
-   Tag vocabulary lock:
-   - Reused: [tag1, tag2, ...]
-   - New: [tag3, tag4]
-   ```
+> **Does this record a gap between what was expected and what happened?**
 
-## Step 4 — Compose
+Keep it only on yes. A keeper is one of:
 
-### 4a. Standard frontmatter (mandatory shape)
+- a **trap** — something behaves differently from the obvious reading of its docs or its name;
+- a **root cause** — the bug was here, and the first hypothesis said elsewhere;
+- a **measurement that disagreed** with the guess, with both numbers;
+- an **approach turned down**, with the reason it lost;
+- a **constraint or invariant** discovered by hitting it.
+
+Drop the rest, and expect that to be most of it — specifically:
+
+- anything you would have produced from general knowledge without the note;
+- a restatement of published API behaviour — the docs are one search away and stay current;
+- progress narration, status, or what was done in a session;
+- anything true only until the current task ends;
+- **anything about this memory system itself** unless it is a measured finding — staging happens
+  inside sessions that work ON the wiki.
+
+**Weigh by the item's `kind`, printed with it:** a `verdict` or a `measurement` happened, while a
+`marker` is the agent's assessment of its own insight and must carry a checkable claim to survive.
+An empty keep list is a real result — say so and stop.
+
+## A2. What may be written
+
+| Operation | Allowed | Why |
+|---|---|---|
+| CREATE a new note | yes | nothing existing is at risk |
+| APPEND a new `## ` section to an existing note | yes | the body is indexed per-section, so it is retrievable the moment it lands |
+| Bump `updated:`, add to `sources:` / `related:` / `tags:` | yes | form-only, already auto-applied in the interactive path |
+| Edit or delete ANY existing prose | **no** | this is the line the mode exists behind |
+| Rewrite an existing `summary:` | **no** | its whole retrieval surface on the pushed rail |
+| Lower `confidence:` | **no** | a judgement about someone else's note |
+
+**The auto path may add, never revise.** That is what makes an unattended writer safe without an
+approver: it cannot produce the class of change the approval gate existed to catch.
+
+CREATE vs APPEND is decided in **A4** step 2; the grain is the ENTITY, per the atomicity law in
+`references/note-shape.md`.
+
+## A3. Marking what the machine wrote
+
+Every auto-created note carries in its frontmatter:
 
 ```yaml
----
-type: api | pattern | tool | concept | discovery
-tags:
-  - tag-one
-  - tag-two
-  - ...
-summary: "2-3 sentences in the vault's working language: what this page is, why it exists,
-         and the key insight. See VAULT_CONTRACT.md - state the conclusion, not the topic."
-confidence: high | medium | low
+provenance: auto
+confidence: low
 sources:
-  - "Attribution 1 — e.g. 'Original design: conversation 2026-04-14'"
-  - "Attribution 2 — e.g. 'Anthropic docs / prompt-caching'"
-updated: YYYY-MM-DD
-related:
-  - path/to/related.md
----
+  - "Staged from session <id8> on <date> by observe.py (<kind>)"
 ```
 
-Rules:
-- `tags` — always a YAML block list, ~10 items, written in the words the user actually types when asking, plus the technical terms that have no translation.
-- `sources` — list of attribution strings (not an integer counter). Each source is a short human-readable string.
-- `summary` — quoted string, 2-3 sentences in the vault's working language. **Must contain at least 2 keywords overlapping with `tags`** (stem-match ok). This is a contract with the recall system: if summary and tags drift apart, recall breaks.
-- `related` — block list of relative paths; omit if none.
+Every appended section opens with one italic line naming its source. `[!]` `provenance: auto` is
+what `gardener.py` holds auto notes to probation by — omitting it removes the note from the only
+mechanism that can retire it.
 
-### 4b. Registration — none (INDEX retired)
+## A4. Steps, in order
 
-There is NO INDEX entry to write. The note's **frontmatter `tags`** are its registration and recall keys; the compiler (`compile_wiki_index.py`) globs every note with frontmatter tags into the recall corpus at next session start. So the whole job is: give the note correct, canonical frontmatter `tags` (§4a) and a `summary`. Nothing else registers it.
+`[!]` **The old steps 1-4 are gone, not forgotten:** the judge globs, reads and applies the bar now.
+Your override survives — A1 is still what you judge the drop lines against.
 
-### 4c. Body structure (for CREATE)
+1. **Run A0a's two commands.** The plan is your input; the staged documents stay on disk if a drop
+   looks wrong.
+2. **Per survivor, take or overturn the judge's target** — it gives `new`/`append <note>`, a reason,
+   flags and the nearest notes with scores. Overturn on the FLAGS and on what it cannot know: it
+   has never seen this session.
+   `[!]` **Cosine cannot answer "no hit above the noise floor"** — it always ranks something first,
+   and here a real hit and pure noise sit three hundredths apart. Settle a close call by the
+   matching SECTION HEADINGS, or by `semantic.py search "<the finding>" -k 8 --rerank`, which CAN
+   refuse. Neither settles it → CREATE: a duplicate note is cheap and visible, a finding filed
+   under the wrong subject is neither.
+3. **Compose and write.** One read of `hooks/recall/index_compiled.json` for the canonical tag set
+   (**Step 3** of `references/interactive.md`; never walk the vault to rebuild it), then **Step
+   4a**'s frontmatter plus **A3**, under `references/note-shape.md`. No diff, no approval — **A2**
+   replaces them.
+4. **Grounding gate, ONE call, before anything is archived** (**Step 8b** of `references/interactive.md`):
+   ```bash
+   for pair in "<note1>:<src1>" "<note2>:<src2>"; do
+       py "$CLAUDE_CONFIG_DIR/scripts/grounding_gate.py" "${pair%%:*}" "${pair##*:}"
+   done
+   ```
+   Exit 1 → fix the quote or drop it, never reword the source. Exit 2 → the source is gone, which
+   is a refusal and not a pass: name that document to `--left`.
+5. **Lint-on-touched** (**Step 8** of `references/interactive.md`) — nobody to ask here: fix what is form-only, log the rest.
+6. **Write the prose half of the log** — one entry per document, what was learned — then
+   **`compile_apply.py --close`** (A0a) with `--kept` and `--left`. **The drop count is the number
+   that matters:** a run that keeps everything means A1 is not being applied, and the log is the
+   only place that shows.
 
-```markdown
-# [Entity] — [Topic]
+## A5. Running unattended
 
-## Summary
-[2-4 sentences]
+`hooks/capture/compile_auto.sh`, on a schedule; its header carries the detail. It judges BEFORE
+deciding whether to boot you, and closes from bash when nothing needs writing.
+`[!]` `CLAUDE_AUTO_COMPILE=1` is load-bearing — without it your Stop hook stages a document about
+compiling and the next run writes notes about the note-making machine.
 
-## Key Details
-[Parameters, limits, behavior]
+## A6. The two subfolders under `raw/`
 
-## Code Examples
-[Snippets — if applicable]
+`_compiled/` (consumed sources, 30-day tail) and `_misrouted/` (another vault's, ROUTED and
+removed, never parked): **`references/judge-and-folders.md`**.
 
-## Limitations / Gotchas
-[What to watch out for]
-```
+# §B. Interactive path — moved to a reference
 
-## Step 5 — Change classification (core immutability)
-
-For each target page, classify every proposed edit into one of two buckets:
-
-### Form-only (NO approval needed — just do it)
-
-- Add / normalize / reorder tags (after vocabulary lock).
-- Write or rewrite `summary` field.
-- Rename the page title (H1) or filename.
-- Reorder sections without touching their text.
-- Normalize markdown (headings depth, list style, code fences).
-- Bump `updated` date.
-- Append to `sources` / `related`.
-- **Append new H2 sections** with new material to the end of the file.
-- Add `> [!conflict]` callouts below existing sections when new info contradicts.
-
-### Content change (APPROVAL REQUIRED — Step 6 gate)
-
-Any of these triggers the approval gate:
-- Modifying existing sentences inside an existing section.
-- Deleting any existing prose (even "obsolete" parts).
-- Rewriting existing code examples.
-- Lowering `confidence`.
-- Removing tags or sources.
-- Overwriting an existing `summary` (first write is form-only; rewriting an existing one is content change).
-
-**Rule of thumb:** if the diff of an existing page contains any `-` lines beyond whitespace/reordering, it's a content change.
-
-## Step 6 — Approval gate
-
-Before `Write`/`Edit` executes:
-
-1. Build the full change set in memory.
-2. For each target page, emit a **unified diff preview**:
-   - CREATE → show full new file.
-   - UPDATE form-only → show diff with note: `[form-only, auto-applied]`.
-   - UPDATE content change → show diff with note: `[CONTENT CHANGE — approval required]`.
-3. If no content-change items present → apply all form-only changes and proceed.
-4. If content-change items present → present them together and wait for:
-   - `yes` — apply all.
-   - `yes form-only` — apply form changes, skip content changes.
-   - `edit` — user describes adjustments, skill rebuilds the diff.
-   - `no` — abort, leave raw file in place.
-
-Diff preview example:
-```
-=== patterns/prompt-engineering.md [CONTENT CHANGE — approval required] ===
-@@ frontmatter @@
-+  - new-tag
--summary: "the previous summary"
-+summary: "the updated summary (2+ tag keywords)"
-@@ body @@
- ## Few-shot examples
--3-5 examples give the best ROI
-+3-7 examples give the best ROI (2026 data)
-```
-
-## Step 7 — Write
-
-Only after approval:
-1. `Write` / `Edit` each target page. That is the whole write — the note's frontmatter registers it.
-2. No INDEX to update (retired). A CREATE just needs to land in a content folder with frontmatter `tags`; the compiler picks it up at next session start.
-
-## Step 8 — Lint-on-touched (local sanity check)
-
-Run a scoped subset of `/lint` checks against only the pages touched in this run. This is not a full vault audit — just catching the issues this compile could have introduced.
-
-Checks:
-- **Recall-registrable** — every touched page lives in a content folder (`apis/ patterns/ tools/ concepts/ discoveries/ research/`) and has non-empty frontmatter `tags`. A note without frontmatter tags is invisible to recall (the new "orphan").
-- **Frontmatter completeness** — touched pages have all required fields (`type`, `tags`, `summary`, `confidence`, `sources`, `updated`).
-- **Summary-tag contract** — `summary` of each touched page contains ≥2 tag keywords (stem-match).
-- **Tag vocabulary drift** — any newly-introduced tag that has a near-duplicate already in the vault (`anthropic` vs a transliterated spelling of it).
-- **Correction-sweep** — when this run CHANGED a volatile fact (a price, token limit, model id, dated "as of" value) on a touched page, `Grep` the vault for the OLD value / the same entity across other pages. Every other page still stating the old value is a missed sweep → surface it: `[SWEEP] apis/other.md still says "<old value>" — update or link to the single source`. This is the write-time prevent side of `/lint` 2.8 `[DRIFT]`; catch the echo now, not three months later in an audit.
-
-If issues found → report them as:
-```
-[LINT] Issues introduced by this compile:
-- [ORPHAN] patterns/new-page.md — no frontmatter tags → invisible to recall
-- [TAG-DRIFT] "anthropic" introduced; a near-duplicate spelling already used in 15 pages
-- [SWEEP] apis/openai-api.md still says "$15/1M" — updated on apis/anthropic-api.md this run
-```
-Ask the user: *"Fix now (form only), or leave it and run a full `/lint` later?"*
-
-Skip full-vault checks (stale, data gaps, cross-refs, contradictions) — those belong to `/lint`.
-
-## Step 9 — Delete consumed sources
-
-Delete each successfully compiled raw file from `$CLAUDE_WIKI_PATH/raw/`. The audit trail lives in `log.md` (Step 10, one entry per source) plus the resulting wiki page — moving the file to a `processed/` folder would be a redundant second trail that only accumulates dead weight. Delete only files that compiled cleanly; leave any that errored in `raw\` for the next run.
-
-## Step 10 — Log
-
-Append to `$CLAUDE_WIKI_PATH/log.md`, one entry per compiled source:
-
-```markdown
-## [YYYY-MM-DD] ingest | Source Title
-- Action: created page-name.md / updated page-name.md
-- Pages touched: [list]
-- Tag reuse: N reused / M new
-- Content changes: yes/no (approved)
-```
-
-## Step 11 — Report
-
-```
-Compilation complete:
-- Created: N new pages [list]
-- Updated: M existing pages [list] (form-only: K, content-approved: L)
-- Tag vocabulary: reused X / new Y
-- Deleted: P consumed source files from raw/
-
-Log appended. (No INDEX — notes register via frontmatter; recall corpus rebuilds next session.)
-```
-
----
+**`references/interactive.md`** — unchanged, still MANDATORY without `--auto`, and every step §A
+names by number resolves there. They moved because they wait for a human at Step 2 and Step 6,
+which an unattended run has none of by construction.
 
 ## Rules
 
-- Talk to the user in the language they write to you in.
-- Wiki page content: the vault working language (VAULT_CONTRACT.md). It is one language per vault, chosen as the one the user actually types in, because a tag in a language nobody types never matches.
-- Batch: process 5–10 files per run when queue is large.
-- **Core immutability is non-negotiable.** When in doubt, classify as content change and ask. Better a wasted approval than a silent rewrite.
-- Never delete information from existing pages without approval — only add, reorder (form-only), or flag conflicts.
-- Raw files with mixed topics → split into separate entity actions in the plan.
-- Personal prompts / non-technical content → flag for manual move, do not compile into LLM wiki.
-- Summary-tag contract: ≥2 tag keywords must appear (stem-match) in the summary text. If validation fails, rewrite summary before diff preview.
-- Tag count target: ~10. Language: the vault's working language for the conversational triggers, with technical terms left in whatever form they are actually written and searched.
+- Talk to the user in Russian; write notes in the vault's working language (`VAULT_CONTRACT.md`) —
+  the one the user actually types in, because a tag in a language nobody types never matches.
+- **Never revise existing prose — add, reorder (form-only), or flag a conflict.** In doubt call it
+  a content change and ask: a wasted approval beats a silent rewrite.
+- A raw file with mixed topics → split into one entity action per topic, never one blended note.
+- Personal or non-technical content → flag for a manual move, never compile it into the LLM wiki.
+- Summary-tag contract: ≥2 tag keywords must stem-match in the summary, or rewrite it first. Tag
+  target ~10, Russian triggers dominant.
 
-### Write-correctness laws (obsidian-mind harvest — apply while composing)
-
-- **Single-source status.** A volatile fact (price, limit, model id, "as of" value) lives on ONE
-  page; other pages link to it, never restate it. If composing forces a restatement, that is the
-  cue to run the Correction-sweep (Step 8) so the copies never diverge.
-- **Mark inference.** A claim in the body not traceable to an entry in `sources:` is tagged
-  `(unverified)` inline. Confidence rests on provenance — an unmarked guess reads as a fact and rots as one.
-- **Let the list be the count.** Write "the commands listed in <X>" rather than "18 commands",
-  so the number is derived at reading time and cannot drift from the thing it counts. A frozen
-  number in prose is a future lie, and it rots silently because nothing recounts it.
-  (Audited by `/lint` 2.9 `[ROT-COUNT]`.)
-- **Atomicity — one concept per note (a RETRIEVAL-quality rule, not filing taste).** Each note covers
-  ONE entity/concept — one API, one pattern, one tool. Do NOT bundle UNRELATED entities in a single
-  note: semantic search embeds each note as one vector, and a note spanning unrelated topics averages
-  into a blurry vector that matches nothing well. One concept = one sharp vector = crisp retrieval.
-  **This is NOT "fragment every facet":** a deep, many-section reference for ONE entity (e.g. the whole
-  Gemini API) is correctly a single note — its summary vector stays on-topic however long the body is
-  (only name+tags+summary are embedded, not the body). Split only when a note bundles concepts that
-  stand alone and would each be searched for separately. The grain is the ENTITY, not the section.
-
----
-
-## Optional — propose links while the note is fresh
-
-**Skip this whole step if no embedding server is running.** It is an optional layer: without it
-every part of `/compile` works exactly as before, and notes simply carry the links their author
-wrote by hand.
-
-If one is running, the moment after a note is written is the cheapest time to ask what it belongs
-with, because the note is already in front of you:
-
-```bash
-python3 "$CLAUDE_CONFIG_DIR/hooks/recall/semantic.py" suggest --note <note-name>
-```
-
-It prints ready-to-paste `related:` lines with a score and the neighbour's summary, and it writes
-nothing. Read each proposal and keep the ones that are true: a link is an assertion that two notes
-travel together, and the retrieval side walks exactly one of them from the strongest match. A
-neighbour that is merely on a similar topic is not worth a link.
-
-Silence is a valid outcome and the common one. The proposer refuses anything that does not stand
-clear of the crowd, because on a mixed vault every note is mildly similar to every other.
-
-If the command reports the server is unreachable, say so once in one line and carry on. Nothing
-about the compile depends on it.
-
-## After compiling — the question worth asking once
-
-Notes just landed. Some of what you compiled may be a procedure you keep re-deriving rather than a
-fact you looked up, and a procedure that recurs is a capability you do not have yet.
-
-Offer `/crystallize` in one line, and only offer it. It reads what landed, compares it against the
-skills and agents already installed, and proposes: extend an existing one, write a project recipe,
-or build something new. Its default answer is that a note stays a note, which is why the offer costs
-nothing when there is nothing there.
+**Write-correctness laws, note shape and the body skeleton: `references/note-shape.md`.** Moved out
+2026-08-25 under skill-craft rule 2.2; unchanged, and MANDATORY while composing.

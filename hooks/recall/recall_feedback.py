@@ -1,5 +1,5 @@
 # @module: recall_feedback
-# @role: Stop-hook - fold [RECALL-USED] markers + scanner fires into global recall_stats.json (wiki recall confidence/decay)
+# @role: Stop-hook - fold BOTH wiki doors into global recall_stats.json: the pushed [RECALL] rail (scanner fires + [RECALL-USED] markers) and the pulled MCP body search (smriti_fires.jsonl + [SMRITI-USED] markers). Separate counters per door, hit-rate decayed by recency; observe-only, never fed back into ranking.
 # @deps: (stdlib only - zero third-party, runs on Stop across machines via py)
 # @used-by: Stop hook in settings.json
 # @doc: twin of procedural_feedback.py (wiki side; procedural is the per-project recipe side)
@@ -16,12 +16,39 @@ hit-rate is aggregated across every project that recalled it.
 Two design guards (identical stance to procedural):
   - Idempotent. Evidence is deduped per session (fired_sessions / used_sessions are sets),
     so running on every Stop of a session never double-counts.
-  - Observe-only. Confidence is surfaced to the human (recall_stats.json -> lens tuning); it is
-    NEVER fed back into scanner ranking. Same line session 3 drew: observability, not autotune.
+  - Idempotent (above), and until 2026-08-06 also observe-only. That second guard is GONE and
+    the reversal is deliberate, so the old wording is not left standing here to mislead: this
+    ledger now DOES reach ranking. recall_scanner reads recall_stats.json and multiplies a note's
+    score by its own record (evidenceMultiplier in main.go).
+
+    What changed the decision: "observability, not autotune" assumed a human would read the
+    numbers and tune a lens from them. Four months on, the ledger held 1357 firings against 31
+    applications and the global lens was still empty — the loop was closed by nobody. An
+    observation nobody acts on is not a safer design than an automatic one, only a quieter one.
+
+    Two limits keep the reversal honest. Evidence ORDERS the candidate pool and never gates it,
+    so a track record cannot veto a topical match (that failure was live for one afternoon and
+    has a regression test). And a note with no history is neutral, never penalised, so a new
+    note can still be shown, still acquire a record, and still displace an old one.
+    `python3 hooks/recall/gardener.py` prints what the formula is doing to which notes.
 
 A USED marker is credited only if that note also FIRED this session (intersection guard), which
 makes the literal "[RECALL-USED] <name>" placeholder in the injected instruction a non-issue.
-Fast no-op when this session wrote no fires file. Zero third-party deps. Invoke via `py`.
+Fast no-op when NEITHER door left evidence. Zero third-party deps. Invoke via `py`.
+
+TWO DOORS since 2026-08-06. The wiki is now reached two ways that read different halves of a
+note, so it is counted two ways:
+
+  push  [RECALL]  scanner, ranks name+tags+summary, fires_<session>.jsonl (session id = filename)
+  pull  [SMRITI]  MCP vault_search, searches note BODIES, smriti_fires.jsonl (one rolling file,
+                  attributed by transcript time window because nothing in that path knows a
+                  session id)
+
+Counting only the push door is what made this urgent: a note whose BODY answers questions while
+its summary does not would read as 20 firings and 0 uses, and the first weight built on that
+number would have demoted it. The counters stay separate on purpose — the gap between a note's
+two confidences is a diagnosis, and summing them would erase it: strong on body and weak on
+label means the content works and the summary lies.
 """
 
 import itertools
@@ -90,6 +117,20 @@ USED_PATTERN = re.compile(r"\[RECALL-USED\]\s+(\S+)")
 HALF_LIFE_DAYS = 30.0
 FIRE_RETENTION_DAYS = 7.0
 
+# ------------------------------------------------------------------
+# The SECOND door
+# ------------------------------------------------------------------
+# Two rails now reach the wiki and they read different halves of a note: the scanner ranks on
+# name/tags/summary and pushes; the MCP searches note BODIES and is pulled. Counting only the
+# first is what made this urgent — a note whose body answers questions but whose label does not
+# would show 20 firings and 0 uses, and any weight built on that would demote it first.
+#
+# The two counters are kept apart rather than summed, and the SPLIT is the useful part: high on
+# the body and low on the label means the content works and the summary lies, which is a repair
+# with a known address. Summing them would average that diagnosis away.
+SMRITI_USED_PATTERN = re.compile(r"\[SMRITI-USED\]\s+(\S+)")
+SMRITI_FIRES_FILE = "smriti_fires.jsonl"
+
 
 # ============================================================
 # READ SIDES (fires this session + used markers in transcript)
@@ -113,17 +154,93 @@ def read_session_fires(fires_path: Path) -> tuple:
     return fired, lines
 
 
-def read_used_markers(transcript_path: Path, fired_names: set) -> set:
-    """Note names the agent marked [RECALL-USED], kept only if they actually fired."""
+def read_used_markers(transcript_path: Path, fired_names: set, pattern=USED_PATTERN) -> set:
+    """Note names the agent marked used, kept only if they actually fired.
+
+    The intersection guard does double duty: it kills the literal `<name>` placeholder that both
+    rails print inside their own instruction, and it kills a hallucinated credit for a note the
+    door never handed over. Both markers earn credit the same way, so they share this function."""
     if not fired_names or not transcript_path.is_file():
         return set()
     text = transcript_path.read_text(encoding="utf-8", errors="replace")
     used = set()
-    for token in USED_PATTERN.findall(text):
+    for token in pattern.findall(text):
         name = token.strip().strip(".,:;")  # keep internal hyphens (kebab note names)
         if name in fired_names:  # intersection guard kills the placeholder/instruction
             used.add(name)
     return used
+
+
+def session_window(transcript_path: Path) -> tuple:
+    """(first, last) UTC timestamps of this session's transcript, or (None, None).
+
+    The pull door cannot write a session id — the MCP server is never told one and the CLI has
+    none — so its fires land in one rolling file and are attributed here by time. Every tool call
+    is bracketed by transcript records, so a fire raised during this session necessarily falls
+    inside this window, including one raised by a subagent (the parent's Agent call brackets it).
+
+    Two sessions running at once will both claim a fire in the overlap. That inflates the
+    denominator, which pushes confidence DOWN — the conservative direction, and the right one for
+    a number that will eventually drive demotion."""
+    if not transcript_path.is_file():
+        return None, None
+    first = last = None
+    for raw in transcript_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        raw = raw.strip()
+        if not raw or '"timestamp"' not in raw:
+            continue
+        try:
+            stamp = json.loads(raw).get("timestamp")
+            when = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+        except (json.JSONDecodeError, ValueError, TypeError):
+            continue
+        if first is None or when < first:
+            first = when
+        if last is None or when > last:
+            last = when
+    return first, last
+
+
+def read_smriti_fires(recall_dir: Path, window: tuple) -> set:
+    """Note names the pull door returned inside this session's window."""
+    start, end = window
+    path = recall_dir / SMRITI_FIRES_FILE
+    if start is None or end is None or not path.is_file():
+        return set()  # no window means no attribution: credit nothing rather than credit all
+    fired = set()
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            rec = json.loads(raw)
+            when = datetime.fromisoformat(str(rec.get("ts", "")).replace("Z", "+00:00"))
+        except (json.JSONDecodeError, ValueError, TypeError):
+            continue
+        if rec.get("name") and start <= when <= end:
+            fired.add(rec["name"])
+    return fired
+
+
+def vacuum_smriti_fires(recall_dir: Path, now: datetime) -> None:
+    """Drop rolling-log lines past retention. Rewritten rather than deleted: unlike the push
+    rail's per-session files, this one file holds every session, so aging it out is a filter."""
+    path = recall_dir / SMRITI_FIRES_FILE
+    if not path.is_file():
+        return
+    keep = []
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            when = datetime.fromisoformat(str(json.loads(raw).get("ts", "")).replace("Z", "+00:00"))
+        except (json.JSONDecodeError, ValueError, TypeError):
+            keep.append(raw)  # unparseable -> keep, never silently drop
+            continue
+        if (now - when).total_seconds() / 86400.0 <= FIRE_RETENTION_DAYS:
+            keep.append(raw)
+    write_atomic(path, "\n".join(keep) + ("\n" if keep else ""))
 
 
 # ============================================================
@@ -137,11 +254,15 @@ def add_session(stats: dict, name: str, field: str, session_id: str, now_iso: st
     entry[ts_field] = now_iso
 
 
-def recompute_confidence(entry: dict, now: datetime) -> float:
-    fired = len(entry.get("fired_sessions", []))
-    used = len(entry.get("used_sessions", []))
+def confidence_from(entry: dict, now: datetime, fired_field: str, used_field: str,
+                    last_used_field: str, last_fired_field: str) -> float:
+    """Hit-rate decayed by recency. One formula, applied per door against that door's own
+    counters — the doors are never mixed, because a note can be strong through one and dead
+    through the other and that difference is the whole diagnostic value of keeping two."""
+    fired = len(entry.get(fired_field, []))
+    used = len(entry.get(used_field, []))
     hit = used / fired if fired else 0.0
-    last = entry.get("last_used") or entry.get("last_fired")
+    last = entry.get(last_used_field) or entry.get(last_fired_field)
     recency = 1.0
     if last:
         try:
@@ -150,6 +271,16 @@ def recompute_confidence(entry: dict, now: datetime) -> float:
         except ValueError:
             recency = 1.0
     return round(hit * recency, 3)
+
+
+def recompute_confidence(entry: dict, now: datetime) -> float:
+    return confidence_from(entry, now, "fired_sessions", "used_sessions",
+                           "last_used", "last_fired")
+
+
+def recompute_smriti_confidence(entry: dict, now: datetime) -> float:
+    return confidence_from(entry, now, "smriti_fired_sessions", "smriti_used_sessions",
+                           "last_smriti_used", "last_smriti_fired")
 
 
 # ============================================================
@@ -204,12 +335,22 @@ def main() -> int:
         return 0
 
     recall_dir = Path(__file__).resolve().parent
+    transcript = Path(transcript_path) if transcript_path else Path()
     fires_path = recall_dir / f"fires_{session_id}.jsonl"
-    if not fires_path.is_file():
-        return 0  # fast no-op: this session wrote no wiki fires
 
+    # Push door: one file per session, the filename IS the session.
     fired, _ = read_session_fires(fires_path)
-    used = read_used_markers(Path(transcript_path), fired)
+    used = read_used_markers(transcript, fired, USED_PATTERN)
+
+    # Pull door: one rolling file for every session, attributed by time window.
+    smriti_fired = read_smriti_fires(recall_dir, session_window(transcript))
+    smriti_used = read_used_markers(transcript, smriti_fired, SMRITI_USED_PATTERN)
+
+    # The old fast no-op keyed on the push door's file alone, which would have skipped the whole
+    # hook in any session where only the pull door was used — the precise case this change exists
+    # to record. It now takes BOTH doors being silent to skip.
+    if not fired and not smriti_fired:
+        return 0
 
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
@@ -226,9 +367,17 @@ def main() -> int:
     for name in fired:
         stats[name]["confidence"] = recompute_confidence(stats[name], now)
 
+    for name in smriti_fired:
+        add_session(stats, name, "smriti_fired_sessions", session_id, now_iso, "last_smriti_fired")
+    for name in smriti_used:
+        add_session(stats, name, "smriti_used_sessions", session_id, now_iso, "last_smriti_used")
+    for name in smriti_fired:
+        stats[name]["smriti_confidence"] = recompute_smriti_confidence(stats[name], now)
+
     write_atomic(stats_path, json.dumps(stats, ensure_ascii=False, indent=2))
 
     vacuum_old_fires(recall_dir, now, fires_path)
+    vacuum_smriti_fires(recall_dir, now)
     return 0
 
 

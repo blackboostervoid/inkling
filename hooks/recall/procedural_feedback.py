@@ -2,7 +2,7 @@
 # @role: Stop-hook - fold [PROCEDURAL-USED] markers + scanner fires into per-project procedural_stats.json (Layer 6 confidence/decay)
 # @deps: (stdlib only - zero third-party, runs on Stop across machines via py)
 # @used-by: Stop hook in settings.json
-# @doc: lab/akasha_engine/6_procedural/CONCEPT.md#confidence-decay
+# @doc: RECIPE_FORMAT.md#lifecycle
 """
 The procedural feedback ledger (Layer 6 confidence/decay). On Stop, reads which recipes
 the scanner FIRED this session (<cwd>/.claude/procedural_fires.jsonl) and which the agent

@@ -19,7 +19,7 @@ USER_TEMPLATE = """\
 
 # boost:
 #   - orchestrator
-#   - akasha
+#   - retrieval
 
 # suppress:
 #   - outdated-note-name
